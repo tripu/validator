@@ -15,42 +15,7 @@ Along with using the [project issue tracker][1] you can get help in real time on
 
 ## Want to build, test, and run the code?
 
-Follow the steps below to build, test, and run the checker such that you can open
-http://localhost:8888/ in a Web browser to use the checker Web UI.
-
-1. Make sure you have git, python, and JDK 5 or later installed.
-
-2. Set the `JAVA_HOME` environment variable:
-
-        export JAVA_HOME=@@/PATH/TO/JDK/ON/YOUR/SYSTEM@@
-
-   For example:
-
-   * `export JAVA_HOME=/usr/lib/jvm/java-6-openjdk` (older Ubuntu)
-   * `export JAVA_HOME=/usr/lib/jvm/java-7-openjdk-amd64` (newer Ubuntu)
-   * `export JAVA_HOME=$(/usr/libexec/java_home)` (Mac OS X)
-
-3. Create a working directory:
-
-        git clone https://github.com/validator/validator.git
-
-4. Change into your working directory:
-
-        cd validator
-
-5. Start the build script:
-
-        python ./build/build.py all
-
-The steps above will build, test, and run the checker such that you can open
-http://localhost:8888/ in a Web browser to use the checker Web UI.
-
-Use `python ./build/build.py --help` to see command-line options for controlling the
-behavior of the script, as well as build-target names you can call separately; e.g.:
-
-* `python ./build/build.py build` (to build only)
-* `python ./build/build.py build test` (to build and test)
-* `python ./build/build.py run` (to run only)
+See [README § *Build instructions*](README.md#build-instructions)
 
 ## Confused about the code? Don’t know where to look?
 
