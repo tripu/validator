@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2005 Henri Sivonen
- * Copyright (c) 2007-2015 Mozilla Foundation
+ * Copyright (c) 2007-2017 Mozilla Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -34,8 +34,10 @@ import java.util.zip.GZIPInputStream;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
+import javax.servlet.http.HttpServletRequest;
 
 import org.relaxng.datatype.DatatypeException;
+
 import nu.validator.datatype.ContentSecurityPolicy;
 import nu.validator.datatype.Html5DatatypeException;
 import nu.validator.io.BoundedInputStream;
@@ -107,6 +109,8 @@ import io.mola.galimatias.GalimatiasParseException;
 
     private String userAgent;
 
+    private HttpServletRequest request;
+
     /**
      * Sets the timeouts of the HTTP client.
      *
@@ -117,7 +121,7 @@ import io.mola.galimatias.GalimatiasParseException;
      *            timeout for waiting for data in milliseconds. Zero means no
      *            timeout.
      * @param maxRequests
-     *            maximum number of connections to a particuar host
+     *            maximum number of connections to a particular host
      */
     public static void setParams(int connectionTimeout, int socketTimeout,
             int maxRequests) {
@@ -131,9 +135,10 @@ import io.mola.galimatias.GalimatiasParseException;
         HttpClientBuilder builder = HttpClients.custom();
         builder.setRedirectStrategy(new LaxRedirectStrategy());
         builder.setMaxConnPerRoute(maxRequests);
-        builder.setMaxConnTotal(200);
+        builder.setMaxConnTotal(
+                Integer.parseInt(System.getProperty("nu.validator.servlet.max-total-connections","200")));
         if ("true".equals(System.getProperty(
-                "nu.validator.xml.promiscuous-ssl", "false"))) { //
+                "nu.validator.xml.promiscuous-ssl", "true"))) { //
             try {
                 SSLContext promiscuousSSLContext = new SSLContextBuilder() //
                 .loadTrustMaterial(null, new TrustStrategy() {
@@ -164,7 +169,8 @@ import io.mola.galimatias.GalimatiasParseException;
         builder.setConnectionManager(phcConnMgr);
         RequestConfig.Builder config = RequestConfig.custom();
         config.setCircularRedirectsAllowed(true);
-        config.setMaxRedirects(20); // Gecko default
+        config.setMaxRedirects(
+                Integer.parseInt(System.getProperty("nu.validator.servlet.max-redirects","20")));
         config.setConnectTimeout(connectionTimeout);
         config.setCookieSpec(CookieSpecs.BEST_MATCH);
         config.setSocketTimeout(socketTimeout);
@@ -176,19 +182,20 @@ import io.mola.galimatias.GalimatiasParseException;
         userAgent = ua;
     }
 
-    /**
-     * @param sizeLimit
-     * @param laxContentType
-     * @param errorHandler
-     */
     public PrudentHttpEntityResolver(long sizeLimit, boolean laxContentType,
-            ErrorHandler errorHandler) {
+            ErrorHandler errorHandler, HttpServletRequest request) {
+        this.request = request;
         this.sizeLimit = sizeLimit;
         this.requestsLeft = maxRequests;
         this.errorHandler = errorHandler;
         this.contentTypeParser = new ContentTypeParser(errorHandler,
                 laxContentType, this.allowRnc, this.allowHtml, this.allowXhtml,
                 this.acceptAllKnownXmlTypes, this.allowGenericXml);
+    }
+
+    public PrudentHttpEntityResolver(long sizeLimit, boolean laxContentType,
+            ErrorHandler errorHandler) {
+        this(sizeLimit, laxContentType, errorHandler, null);
     }
 
     /**
@@ -250,14 +257,36 @@ import io.mola.galimatias.GalimatiasParseException;
             m.setHeader("User-Agent", userAgent);
             m.setHeader("Accept", buildAccept());
             m.setHeader("Accept-Encoding", "gzip");
+            if (request != null && request.getAttribute(
+                    "http://validator.nu/properties/accept-language") != null) {
+                m.setHeader("Accept-Language", (String) request.getAttribute(
+                        "http://validator.nu/properties/accept-language"));
+            }
             log4j.info(systemId);
+            try {
+                if (url.port() > 65535) {
+                    throw new IOException(
+                            "Port number must be less than 65536.");
+                }
+            } catch (NumberFormatException e) {
+                    throw new IOException(
+                            "Port number must be less than 65536.");
+            }
             HttpResponse response = client.execute(m);
+            boolean ignoreResponseStatus = false;
+            if (request != null && request.getAttribute(
+                    "http://validator.nu/properties/ignore-response-status") != null) {
+                ignoreResponseStatus = (boolean) request.getAttribute(
+                        "http://validator.nu/properties/ignore-response-status");
+            }
             int statusCode = response.getStatusLine().getStatusCode();
-            if (statusCode != 200) {
-                String msg = "HTTP resource not retrievable. The HTTP status from the remote server was: "
+            if (statusCode != 200 && !ignoreResponseStatus) {
+                String msg = "HTTP resource not retrievable."
+                        + " The HTTP status from the remote server was: "
                         + statusCode + ".";
                 SAXParseException spe = new SAXParseException(msg, publicId,
-                        m.getURI().toString(), -1, -1, new IOException(msg));
+                        m.getURI().toString(), -1, -1,
+                        new SystemIdIOException(m.getURI().toString(), msg));
                 if (errorHandler != null) {
                     errorHandler.fatalError(spe);
                 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016 Mozilla Foundation
+ * Copyright (c) 2013-2017 Mozilla Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -22,46 +22,43 @@
 
 package nu.validator.datatype;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import nu.validator.datatype.tools.RegisteredRelValuesBuilder;
+
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 
 import org.relaxng.datatype.DatatypeException;
+import org.xml.sax.SAXException;
 
 public final class LinkRel extends AbstractRel {
 
-    private static final HashSet<String> registeredValues = new HashSet<>();
+    private static final HashSet<String> registeredValues;
 
     static {
-        // Standard rel values for <link> from the spec
-        registeredValues.add("alternate");
-        registeredValues.add("author");
-        registeredValues.add("dns-prefetch");
-        registeredValues.add("help");
-        registeredValues.add("icon");
-        registeredValues.add("license");
-        registeredValues.add("next");
-        registeredValues.add("pingback");
-        registeredValues.add("preconnect");
-        registeredValues.add("prefetch");
-        registeredValues.add("prerender");
-        registeredValues.add("preload");
-        registeredValues.add("prev");
-        registeredValues.add("search");
-        registeredValues.add("stylesheet");
-
-        BufferedReader br = new BufferedReader(new InputStreamReader(
-                LinkRel.class.getClassLoader().getResourceAsStream(
-                        "nu/validator/localentities/files/link-rel-extensions")));
-        // Read in registered rel values from cached copy of the registry
         try {
-            String read = br.readLine();
-            while (read != null) {
-                registeredValues.add(read);
-                read = br.readLine();
-            }
-        } catch (IOException e) {
+            RegisteredRelValuesBuilder.parseRegistry();
+            registeredValues = RegisteredRelValuesBuilder.getLinkRelValues();
+            // Standard rel values for <link> from the spec
+            registeredValues.add("alternate");
+            registeredValues.add("author");
+            registeredValues.add("dns-prefetch");
+            registeredValues.add("help");
+            registeredValues.add("icon");
+            registeredValues.add("license");
+            registeredValues.add("mask-icon");
+            registeredValues.add("next");
+            registeredValues.add("pingback");
+            registeredValues.add("preconnect");
+            registeredValues.add("prefetch");
+            registeredValues.add("preload");
+            registeredValues.add("prerender");
+            registeredValues.add("prev");
+            registeredValues.add("search");
+            registeredValues.add("serviceworker");
+            registeredValues.add("stylesheet");
+        } catch (IOException | SAXException e) {
             throw new RuntimeException(e);
         }
     }
@@ -78,10 +75,13 @@ public final class LinkRel extends AbstractRel {
         super();
     }
 
+    private final static boolean WARN = System.getProperty(
+            "nu.validator.datatype.warn", "").equals("true");
+
     @Override
     protected boolean isRegistered(CharSequence literal, String token)
             throws DatatypeException {
-        if ("shortcut".equals(token)) {
+        if ("shortcut".equals(toAsciiLowerCase(token))) {
             if ("shortcut icon".equals(toAsciiLowerCase(literal))) {
                 return true;
             } else {
@@ -91,7 +91,14 @@ public final class LinkRel extends AbstractRel {
                         + " \u201cshortcut icon\u201d.");
             }
         } else {
-            return registeredValues.contains(token);
+            if (WARN) {
+                // Synonyms for current keywords
+                Map<String, String> map = new HashMap<>();
+                map.put("copyright", "license");
+                map.put("previous", "prev");
+                errSynonym(token, map);
+            }
+            return registeredValues.contains(token.toLowerCase());
         }
     }
 

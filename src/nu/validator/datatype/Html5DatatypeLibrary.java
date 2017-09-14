@@ -90,6 +90,8 @@ public class Html5DatatypeLibrary implements DatatypeLibrary {
             return Iri.THE_INSTANCE;
         } else if ("iri-ref".equals(typeLocalName)) {
             return IriRef.THE_INSTANCE;
+        } else if ("iri-ref-http-or-https".equals(typeLocalName)) {
+            return IriRefHttpOrHttps.THE_INSTANCE;
         } else if ("string".equals(typeLocalName)) {
             return AsciiCaseInsensitiveString.THE_INSTANCE;
         } else if ("language".equals(typeLocalName)) {
@@ -168,6 +170,8 @@ public class Html5DatatypeLibrary implements DatatypeLibrary {
             return StringWithoutLineBreaks.THE_INSTANCE;
         } else if ("simple-color".equals(typeLocalName)) {
             return SimpleColor.THE_INSTANCE;
+        } else if ("color".equals(typeLocalName)) {
+            return Color.THE_INSTANCE;
         } else if ("time-datetime".equals(typeLocalName)) {
             return TimeDatetime.THE_INSTANCE;
         } else if ("svg-pathdata".equals(typeLocalName)) {
@@ -204,6 +208,8 @@ public class Html5DatatypeLibrary implements DatatypeLibrary {
             return AutocompleteDetailsMonth.THE_INSTANCE;
         } else if ("autocomplete-date".equals(typeLocalName)) {
             return AutocompleteDetailsDate.THE_INSTANCE;
+        } else if ("custom-element-name".equals(typeLocalName)) {
+            return CustomElementName.THE_INSTANCE;
         }
         throw new DatatypeException("Unknown local name for datatype: " + typeLocalName);
     }

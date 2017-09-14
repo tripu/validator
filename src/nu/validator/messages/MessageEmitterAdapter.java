@@ -31,11 +31,13 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.regex.Pattern;
 import java.util.Set;
 
 import nu.validator.checker.NormalizationChecker;
 import nu.validator.checker.DatatypeMismatchException;
 import nu.validator.checker.VnuBadAttrValueException;
+import nu.validator.checker.VnuBadElementNameException;
 import nu.validator.datatype.Html5DatatypeException;
 import nu.validator.io.DataUri;
 import nu.validator.io.SystemIdIOException;
@@ -182,7 +184,7 @@ public final class MessageEmitterAdapter implements ErrorHandler {
                 "#attr-input-alt", "image" });
         validInputTypesByAttributeName.put("autocomplete", new String[] {
                 "#attr-input-autocomplete", "text", "search", "url", "tel",
-                "email", "password", "datetime", "date", "month", "week",
+                "email", "password", "date", "month", "week",
                 "time", "datetime-local", "number", "range", "color" });
         validInputTypesByAttributeName.put("autofocus",
                 new String[] { "#attr-fe-autofocus" });
@@ -208,16 +210,16 @@ public final class MessageEmitterAdapter implements ErrorHandler {
                 "#attr-dim-height", "image" });
         validInputTypesByAttributeName.put("list", new String[] {
                 "#attr-input-list", "text", "search", "url", "tel", "email",
-                "datetime", "date", "month", "week", "time", "datetime-local",
+                "date", "month", "week", "time", "datetime-local",
                 "number", "range", "color" });
         validInputTypesByAttributeName.put("max", new String[] {
-                "#attr-input-max", "datetime", "date", "month", "week", "time",
+                "#attr-input-max", "date", "month", "week", "time",
                 "datetime-local", "number", "range", });
         validInputTypesByAttributeName.put("maxlength", new String[] {
                 "#attr-input-maxlength", "text", "search", "url", "tel",
                 "email", "password" });
         validInputTypesByAttributeName.put("min", new String[] {
-                "#attr-input-min", "datetime", "date", "month", "week", "time",
+                "#attr-input-min", "date", "month", "week", "time",
                 "datetime-local", "number", "range", });
         validInputTypesByAttributeName.put("multiple", new String[] {
                 "#attr-input-multiple", "email", "file" });
@@ -231,11 +233,11 @@ public final class MessageEmitterAdapter implements ErrorHandler {
                 "email", "password", "number" });
         validInputTypesByAttributeName.put("readonly", new String[] {
                 "#attr-input-readonly", "text", "search", "url", "tel",
-                "email", "password", "datetime", "date", "month", "week",
+                "email", "password", "date", "month", "week",
                 "time", "datetime-local", "number" });
         validInputTypesByAttributeName.put("required",
                 new String[] { "#attr-input-required", "text", "search", "url",
-                        "tel", "email", "password", "datetime", "date",
+                        "tel", "email", "password", "date",
                         "month", "week", "time", "datetime-local", "number",
                         "checkbox", "radio", "file" });
         validInputTypesByAttributeName.put("size", new String[] {
@@ -244,7 +246,7 @@ public final class MessageEmitterAdapter implements ErrorHandler {
         validInputTypesByAttributeName.put("src", new String[] {
                 "#attr-input-src", "image" });
         validInputTypesByAttributeName.put("step", new String[] {
-                "#attr-input-step", "datetime", "date", "month", "week",
+                "#attr-input-step", "date", "month", "week",
                 "time", "datetime-local", "number", "range", });
         validInputTypesByAttributeName.put("type",
                 new String[] { "#attr-input-type" });
@@ -266,8 +268,6 @@ public final class MessageEmitterAdapter implements ErrorHandler {
         fragmentIdByInputType.put("url", "#url-state-(type=url)");
         fragmentIdByInputType.put("email", "#e-mail-state-(type=email)");
         fragmentIdByInputType.put("password", "#password-state-(type=password)");
-        fragmentIdByInputType.put("datetime",
-                "#date-and-time-state-(type=datetime)");
         fragmentIdByInputType.put("date", "#date-state-(type=date)");
         fragmentIdByInputType.put("month", "#month-state-(type=month)");
         fragmentIdByInputType.put("week", "#week-state-(type=week)");
@@ -319,6 +319,10 @@ public final class MessageEmitterAdapter implements ErrorHandler {
     private final static char[] BAD_VALUE = "Bad value ".toCharArray();
 
     private final static char[] POTENTIALLY_BAD_VALUE = "Potentially bad value ".toCharArray();
+
+    private final static char[] BAD_ELEMENT_NAME = "Bad element name".toCharArray();
+
+    private final static char[] POTENTIALLY_BAD_ELEMENT_NAME = "Potentially bad element name".toCharArray();
 
     private final static char[] FOR = " for ".toCharArray();
 
@@ -392,6 +396,8 @@ public final class MessageEmitterAdapter implements ErrorHandler {
 
     private int nonDocumentErrors = 0;
 
+    private final Pattern filterPattern;
+
     private final SourceCode sourceCode;
 
     private final MessageEmitter emitter;
@@ -412,6 +418,7 @@ public final class MessageEmitterAdapter implements ErrorHandler {
 
     private boolean errorsOnly = false;
 
+    @SuppressWarnings("deprecation")
     protected static String scrub(String s) throws SAXException {
         if (s == null) {
             return null;
@@ -440,10 +447,11 @@ public final class MessageEmitterAdapter implements ErrorHandler {
         }
     }
 
-    public MessageEmitterAdapter(SourceCode sourceCode, boolean showSource,
-            ImageCollector imageCollector, int lineOffset, boolean batchMode,
-            MessageEmitter messageEmitter) {
+    public MessageEmitterAdapter(Pattern filterPattern, SourceCode sourceCode,
+            boolean showSource, ImageCollector imageCollector, int lineOffset,
+            boolean batchMode, MessageEmitter messageEmitter) {
         super();
+        this.filterPattern = filterPattern;
         this.sourceCode = sourceCode;
         this.emitter = messageEmitter;
         this.exactErrorHandler = new ExactErrorHandler(this);
@@ -522,6 +530,9 @@ public final class MessageEmitterAdapter implements ErrorHandler {
         }
         if (e instanceof VnuBadAttrValueException) {
             datatypeErrors = ((VnuBadAttrValueException) e).getExceptions();
+        }
+        if (e instanceof VnuBadElementNameException) {
+            datatypeErrors = ((VnuBadElementNameException) e).getExceptions();
         }
         if (e instanceof DatatypeMismatchException) {
             datatypeErrors = ((DatatypeMismatchException) e).getExceptions();
@@ -737,13 +748,19 @@ public final class MessageEmitterAdapter implements ErrorHandler {
     private void message(MessageType type, Exception message, String systemId,
             int oneBasedLine, int oneBasedColumn, boolean exact)
             throws SAXException {
+        String msg = message.getMessage();
+        if (filterPattern != null && msg != null
+                && filterPattern.matcher(msg).matches()) {
+            return;
+        }
         if (loggingOk
                 && (type.getSuperType() == "error")
                 && spec != EmptySpec.THE_INSTANCE
                 && systemId != null
+                && msg != null
                 && (systemId.startsWith("http:") || systemId.startsWith("https:"))) {
-            log4j.info(zapLf(new StringBuilder().append(systemId).append('\t').append(
-                    message.getMessage())));
+            log4j.info(zapLf(new StringBuilder() //
+                    .append(systemId).append('\t').append(msg)));
         }
         if (errorsOnly && type.getSuperType() == "info") {
             return;
@@ -857,6 +874,9 @@ public final class MessageEmitterAdapter implements ErrorHandler {
         } else if (message instanceof VnuBadAttrValueException) {
             VnuBadAttrValueException e = (VnuBadAttrValueException) message;
             vnuBadAttrValueMessageText(e);
+        } else if (message instanceof VnuBadElementNameException) {
+            VnuBadElementNameException e = (VnuBadElementNameException) message;
+            vnuElementNameMessageText(e);
         } else {
             String msg = message.getMessage();
             if (msg != null) {
@@ -898,6 +918,34 @@ public final class MessageEmitterAdapter implements ErrorHandler {
                     e.getCurrentElement(), false);
             messageTextString(messageTextHandler, ON, false);
             element(messageTextHandler, e.getCurrentElement(), false);
+            emitDatatypeErrors(messageTextHandler, e.getExceptions());
+        }
+        emitter.endText();
+    }
+
+    private void vnuElementNameMessageText(VnuBadElementNameException e)
+            throws SAXException {
+        MessageTextHandler messageTextHandler = emitter.startText();
+        if (messageTextHandler != null) {
+            boolean isWarning = false;
+            Map<String, DatatypeException> datatypeErrors = e.getExceptions();
+            for (Map.Entry<String, DatatypeException> entry : datatypeErrors.entrySet()) {
+                DatatypeException dex = entry.getValue();
+                if (dex instanceof Html5DatatypeException) {
+                    Html5DatatypeException ex5 = (Html5DatatypeException) dex;
+                    if (ex5.isWarning()) {
+                        isWarning = true;
+                    }
+                }
+            }
+            if (isWarning) {
+                messageTextString(messageTextHandler,
+                        POTENTIALLY_BAD_ELEMENT_NAME, false);
+            } else {
+                messageTextString(messageTextHandler, BAD_ELEMENT_NAME, false);
+            }
+            messageTextString(messageTextHandler, SPACE, false);
+            codeString(messageTextHandler, e.getElementName());
             emitDatatypeErrors(messageTextHandler, e.getExceptions());
         }
         emitter.endText();
@@ -1240,7 +1288,9 @@ public final class MessageEmitterAdapter implements ErrorHandler {
     private void elaboration(Exception e)
             throws SAXException {
         if (!(e instanceof AbstractValidationException
-                || e instanceof VnuBadAttrValueException || e instanceof DatatypeMismatchException)) {
+                || e instanceof VnuBadAttrValueException
+                || e instanceof VnuBadElementNameException
+                || e instanceof DatatypeMismatchException)) {
             return;
         }
 
@@ -1299,6 +1349,10 @@ public final class MessageEmitterAdapter implements ErrorHandler {
             elaborateDatatypes(map);
         } else if (e instanceof VnuBadAttrValueException) {
             VnuBadAttrValueException ex = (VnuBadAttrValueException) e;
+            Map<String, DatatypeException> map = ex.getExceptions();
+            elaborateDatatypes(map);
+        } else if (e instanceof VnuBadElementNameException) {
+            VnuBadElementNameException ex = (VnuBadElementNameException) e;
             Map<String, DatatypeException> map = ex.getExceptions();
             elaborateDatatypes(map);
         } else if (e instanceof DatatypeMismatchException) {

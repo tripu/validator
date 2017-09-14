@@ -15,28 +15,23 @@ public class UnsupportedFeatureChecker extends Checker {
         if ("http://www.w3.org/1999/xhtml" != uri) {
             return;
         }
-        if (atts.getIndex("", "contextmenu") > -1) {
-            warnAboutAttribute("contextmenu");
-        }
         if (atts.getIndex("", "dropzone") > -1) {
             warnAboutAttribute("dropzone");
         }
-        if ("menu" == localName || "dialog" == localName || "details" == localName || "bdi" == localName) {
+        if ("dialog" == localName || "bdi" == localName) {
             warnAboutElement(localName);
-        } else if ("video" == localName || "audio" == localName) {
-            if (atts.getIndex("", "mediagroup") > -1) {
-                warnAboutAttributeOnElement("mediagroup", localName);
-            }
-        } else if ("iframe" == localName) {
-            if (atts.getIndex("", "seamless") > -1) {
-                warnAboutAttributeOnElement("seamless", "iframe");
-            }
         } else if ("textarea" == localName) {
             if (atts.getIndex("", "dirname") > -1) {
                 warnAboutAttributeOnElement("dirname", "textarea");
             }
             if (atts.getIndex("", "inputmode") > -1) {
                 warnAboutAttribute("inputmode");
+            }
+        } else if ("script" == localName) {
+            if (atts.getIndex("", "type") > -1
+                    && AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                            "module", atts.getValue("", "type"))) {
+                warn("Module scripts are not supported in most browsers yet.");
             }
         } else if ("input" == localName) {
             if (atts.getIndex("", "dirname") > -1) {
@@ -47,9 +42,6 @@ public class UnsupportedFeatureChecker extends Checker {
             }
             String type = atts.getValue("", "type");
             if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                    "datetime", type)) {
-                warnAboutInputType("datetime");
-            } else if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                     "date", type)) {
                 warnAboutInputType("date");
             } else if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
@@ -92,7 +84,7 @@ public class UnsupportedFeatureChecker extends Checker {
     private void warnAboutAttributeOnElement(String attributeName, String elementName) throws SAXException {
       warn("The \u201C" + attributeName + "\u201D attribute on the"
           + " \u201C" + elementName + "\u201D element is not supported"
-          + " all browsers. Please be sure to test, and consider"
+          + " in all browsers. Please be sure to test, and consider"
           + " using a polyfill.");
     }
 

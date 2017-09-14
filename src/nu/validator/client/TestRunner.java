@@ -91,7 +91,7 @@ public class TestRunner implements ErrorHandler {
 
     public TestRunner() throws IOException {
         reportedMessages = new LinkedHashMap<>();
-        validator = new SimpleDocumentValidator(true, false);
+        validator = new SimpleDocumentValidator(true, false, false);
         try {
             this.err = new PrintWriter(new OutputStreamWriter(System.err,
                     "UTF-8"));
@@ -457,7 +457,7 @@ public class TestRunner implements ErrorHandler {
 
     public boolean runTestSuite() throws SAXException, Exception {
         if (messagesFile != null) {
-            baseDir = messagesFile.getParentFile();
+            baseDir = messagesFile.getCanonicalFile().getParentFile();
             FileInputStream fis = new FileInputStream(messagesFile);
             InputStreamReader reader = new InputStreamReader(fis, "UTF-8");
             expectedMessages = (HashMap<String, String>) JSON.parse(reader);

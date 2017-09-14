@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008-2016 Mozilla Foundation
+ * Copyright (c) 2008-2017 Mozilla Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -23,19 +23,23 @@
 package nu.validator.checker.schematronequiv;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Arrays;
+import java.util.Collections;
 
 import nu.validator.checker.AttributeUtil;
 import nu.validator.checker.Checker;
 import nu.validator.checker.LocatorImpl;
 import nu.validator.checker.TaintableLocatorImpl;
 import nu.validator.checker.VnuBadAttrValueException;
+import nu.validator.checker.VnuBadElementNameException;
 import nu.validator.datatype.AutocompleteDetailsAny;
 import nu.validator.datatype.AutocompleteDetailsDate;
 import nu.validator.datatype.AutocompleteDetailsEmail;
@@ -45,10 +49,13 @@ import nu.validator.datatype.AutocompleteDetailsPassword;
 import nu.validator.datatype.AutocompleteDetailsTel;
 import nu.validator.datatype.AutocompleteDetailsText;
 import nu.validator.datatype.AutocompleteDetailsUrl;
+import nu.validator.datatype.Color;
+import nu.validator.datatype.CustomElementName;
 import nu.validator.datatype.Html5DatatypeException;
 import nu.validator.datatype.ImageCandidateStringsWidthRequired;
 import nu.validator.datatype.ImageCandidateStrings;
 import nu.validator.datatype.ImageCandidateURL;
+import nu.validator.htmlparser.impl.NCName;
 
 import org.relaxng.datatype.DatatypeException;
 
@@ -60,27 +67,6 @@ public class Assertions extends Checker {
 
     private static boolean followW3Cspec = "1".equals(
             System.getProperty("nu.validator.servlet.follow-w3c-spec"));
-
-    private static boolean lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-            String lowerCaseLiteral, String string) {
-        if (string == null) {
-            return false;
-        }
-        if (lowerCaseLiteral.length() != string.length()) {
-            return false;
-        }
-        for (int i = 0; i < lowerCaseLiteral.length(); i++) {
-            char c0 = lowerCaseLiteral.charAt(i);
-            char c1 = string.charAt(i);
-            if (c1 >= 'A' && c1 <= 'Z') {
-                c1 += 0x20;
-            }
-            if (c0 != c1) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     private static boolean equalsIgnoreAsciiCase(String one, String other) {
         if (other == null) {
@@ -142,11 +128,11 @@ public class Assertions extends Checker {
     static {
         INPUT_ATTRIBUTES.put("autocomplete",
                 new String[] { "hidden", "text", "search", "url", "tel", "email",
-                        "password", "datetime", "date", "month", "week", "time",
+                        "password", "date", "month", "week", "time",
                         "datetime-local", "number", "range", "color" });
         INPUT_ATTRIBUTES.put("list",
                 new String[] { "text", "search", "url", "tel", "email",
-                        "datetime", "date", "month", "week", "time",
+                        "date", "month", "week", "time",
                         "datetime-local", "number", "range", "color" });
         INPUT_ATTRIBUTES.put("maxlength", new String[] { "text", "search",
                 "url", "tel", "email", "password" });
@@ -158,11 +144,11 @@ public class Assertions extends Checker {
                 "url", "tel", "email", "password", "number" });
         INPUT_ATTRIBUTES.put("readonly",
                 new String[] { "text", "search", "url", "tel", "email",
-                        "password", "datetime", "date", "month", "week", "time",
+                        "password", "date", "month", "week", "time",
                         "datetime-local", "number" });
         INPUT_ATTRIBUTES.put("required",
                 new String[] { "text", "search", "url", "tel", "email",
-                        "password", "datetime", "date", "month", "week", "time",
+                        "password", "date", "month", "week", "time",
                         "datetime-local", "number", "checkbox", "radio",
                         "file" });
         INPUT_ATTRIBUTES.put("size", new String[] { "text", "search", "url",
@@ -172,6 +158,7 @@ public class Assertions extends Checker {
     private static final Map<String, String> OBSOLETE_ELEMENTS = new HashMap<>();
 
     static {
+        OBSOLETE_ELEMENTS.put("keygen", "");
         OBSOLETE_ELEMENTS.put("center", "Use CSS instead.");
         OBSOLETE_ELEMENTS.put("font", "Use CSS instead.");
         OBSOLETE_ELEMENTS.put("big", "Use CSS instead.");
@@ -207,7 +194,7 @@ public class Assertions extends Checker {
     private static final Map<String, String[]> OBSOLETE_ATTRIBUTES = new HashMap<>();
 
     static {
-        OBSOLETE_ATTRIBUTES.put("abbr", new String[] { "td", "th" });
+        OBSOLETE_ATTRIBUTES.put("abbr", new String[] { "td" });
         OBSOLETE_ATTRIBUTES.put("archive", new String[] { "object" });
         OBSOLETE_ATTRIBUTES.put("axis", new String[] { "td", "th" });
         OBSOLETE_ATTRIBUTES.put("charset", new String[] { "link", "a" });
@@ -465,8 +452,6 @@ public class Assertions extends Checker {
         registerProhibitedAncestor("button", "textarea");
         registerProhibitedAncestor("a", "select");
         registerProhibitedAncestor("button", "select");
-        registerProhibitedAncestor("a", "keygen");
-        registerProhibitedAncestor("button", "keygen");
         registerProhibitedAncestor("a", "embed");
         registerProhibitedAncestor("button", "embed");
         registerProhibitedAncestor("a", "iframe");
@@ -564,10 +549,21 @@ public class Assertions extends Checker {
     private static final Map<String, String> ELEMENTS_WITH_IMPLICIT_ROLE = new HashMap<>();
 
     static {
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("a", "link");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("address", "contentinfo");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("area", "link");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("article", "article");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("aside", "complementary");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("body", "document");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("button", "button");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("datalist", "listbox");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("dd", "definition");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("details", "group");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("dialog", "dialog");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("dl", "list");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("dt", "listitem");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("figure", "figure");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("form", "form");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("footer", "contentinfo");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("h1", "heading");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("h2", "heading");
@@ -577,12 +573,26 @@ public class Assertions extends Checker {
         ELEMENTS_WITH_IMPLICIT_ROLE.put("h6", "heading");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("header", "banner");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("img", "img");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("li", "listitem");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("link", "link");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("main", "main");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("math", "math");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("menu", "menu");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("nav", "navigation");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("ol", "list");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("optgroup", "group");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("option", "option");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("output", "status");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("progress", "progressbar");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("section", "region");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("select", "listbox");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("summary", "button");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("table", "table");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("tbody", "rowgroup");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("textarea", "textbox");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("tfoot", "rowgroup");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("thead", "rowgroup");
+        ELEMENTS_WITH_IMPLICIT_ROLE.put("td", "cell");
         ELEMENTS_WITH_IMPLICIT_ROLE.put("ul", "list");
     }
 
@@ -613,7 +623,6 @@ public class Assertions extends Checker {
         INPUT_TYPES_WITH_IMPLICIT_ROLE.put("checkbox", "checkbox");
         INPUT_TYPES_WITH_IMPLICIT_ROLE.put("image", "button");
         INPUT_TYPES_WITH_IMPLICIT_ROLE.put("number", "spinbutton");
-        INPUT_TYPES_WITH_IMPLICIT_ROLE.put("password", "textbox");
         INPUT_TYPES_WITH_IMPLICIT_ROLE.put("radio", "radio");
         INPUT_TYPES_WITH_IMPLICIT_ROLE.put("range", "slider");
         INPUT_TYPES_WITH_IMPLICIT_ROLE.put("reset", "button");
@@ -1096,10 +1105,6 @@ public class Assertions extends Checker {
 
     private Map<StackNode, Locator> openActiveDescendants = new HashMap<>();
 
-    private LinkedHashSet<IdrefLocator> contextmenuReferences = new LinkedHashSet<>();
-
-    private Set<String> menuIds = new HashSet<>();
-
     private LinkedHashSet<IdrefLocator> formControlReferences = new LinkedHashSet<>();
 
     private LinkedHashSet<IdrefLocator> formElementReferences = new LinkedHashSet<>();
@@ -1124,7 +1129,7 @@ public class Assertions extends Checker {
 
     private int currentSectioningElementPtr;
 
-    private boolean hasMain;
+    private boolean hasVisibleMain;
 
     private boolean hasMetaCharset;
 
@@ -1187,14 +1192,6 @@ public class Assertions extends Checker {
      */
     @Override
     public void endDocument() throws SAXException {
-        // contextmenu
-        for (IdrefLocator idrefLocator : contextmenuReferences) {
-            if (!menuIds.contains(idrefLocator.getIdref())) {
-                err("The \u201Ccontextmenu\u201D attribute must refer to a \u201Cmenu\u201D element.",
-                        idrefLocator.getLocator());
-            }
-        }
-
         // label for
         for (IdrefLocator idrefLocator : formControlReferences) {
             if (!formControlIds.contains(idrefLocator.getIdref())) {
@@ -1378,7 +1375,7 @@ public class Assertions extends Checker {
         currentSectioningElementPtr = -1;
         currentSectioningDepth = 0;
         stack[0] = null;
-        hasMain = false;
+        hasVisibleMain = false;
         hasMetaCharset = false;
         hasMetaDescription = false;
         hasContentTypePragma = false;
@@ -1393,8 +1390,6 @@ public class Assertions extends Checker {
         openLabels.clear();
         openMediaElements.clear();
         openActiveDescendants.clear();
-        contextmenuReferences.clear();
-        menuIds.clear();
         ariaOwnsIdsByRole.clear();
         needsAriaOwner.clear();
         formControlReferences.clear();
@@ -1463,7 +1458,6 @@ public class Assertions extends Checker {
             String xmlLang = null;
             String lang = null;
             String id = null;
-            String contextmenu = null;
             String list = null;
 
             int len = atts.getLength();
@@ -1471,6 +1465,23 @@ public class Assertions extends Checker {
                 String attUri = atts.getURI(i);
                 if (attUri.length() == 0) {
                     String attLocal = atts.getLocalName(i);
+                    if ("embed".equals(localName)) {
+                        for (int j = 0; j < attLocal.length(); j++) {
+                            char c = attLocal.charAt(j);
+                            if (c >= 'A' && c <= 'Z') {
+                                err("Bad attribute name \u201c" + attLocal
+                                        + "\u201d. Attribute names for the"
+                                        + " \u201cembed\u201d element must not"
+                                        + " contain uppercase ASCII letters.");
+                            }
+                        }
+                        if (!NCName.isNCName(attLocal)) {
+                            err("Bad attribute name \u201c" + attLocal
+                                    + "\u201d. Attribute names for the"
+                                    + " \u201cembed\u201d element must be"
+                                    + " XML-compatible.");
+                        }
+                    }
                     if ("href" == attLocal) {
                         href = true;
                     } else if ("controls" == attLocal) {
@@ -1484,15 +1495,15 @@ public class Assertions extends Checker {
                             menuitemTypeVal = atts.getValue(i);
                         }
                         String attValue = atts.getValue(i);
-                        if (lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                        if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                 "hidden", attValue)) {
                             hidden = true;
-                        } else if (lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                        } else if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                 "toolbar", attValue)) {
                             toolbar = true;
                         }
 
-                        if (!lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                        if (!AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                 "text/javascript", attValue)) {
                             typeNotTextJavaScript = true;
                         }
@@ -1511,8 +1522,6 @@ public class Assertions extends Checker {
                     } else if ("for" == attLocal && "label" == localName) {
                         forAttr = atts.getValue(i);
                         ancestorMask |= LABEL_FOR_MASK;
-                    } else if ("contextmenu" == attLocal) {
-                        contextmenu = atts.getValue(i);
                     } else if ("ismap" == attLocal) {
                         ismap = true;
                     } else if ("selected" == attLocal) {
@@ -1528,7 +1537,7 @@ public class Assertions extends Checker {
                     } else if ("itemtype" == attLocal) {
                         itemtype = true;
                     } else if ("language" == attLocal
-                            && lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                            && AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                     "javascript", atts.getValue(i))) {
                         languageJavaScript = true;
                     } else if ("rev" == attLocal
@@ -1752,7 +1761,7 @@ public class Assertions extends Checker {
                                         locator);
                                 siblingSources.remove(locator);
                             } else if (media != null
-                                    && lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                                    && AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                             "all", trimSpaces(media))) {
                                 err("Value of \u201cmedia\u201d attribute here"
                                         + " must not be \u201call\u201d.",
@@ -1902,16 +1911,18 @@ public class Assertions extends Checker {
                         }
                     }
                 } else {
-                    if ("".equals(atts.getValue("", "alt"))
-                            && atts.getIndex("", "role") > -1
-                            && !"presentation".equals(
-                                    atts.getValue("", "role"))) {
-                        err("An \u201Cimg\u201D element which has an"
-                                + " \u201Calt\u201D attribute whose value"
-                                + " is the empty string must not have a"
-                                + " \u201Crole\u201D attribute with any"
-                                + " value other than"
-                                + " \u201Cpresentation\u201D");
+                    if ("".equals(atts.getValue("", "alt")) && role != null) {
+                        List<String> roles = Arrays.asList(role.trim() //
+                                .toLowerCase().split("\\s+"));
+                        if (!roles.contains("none")
+                                && !roles.contains("presentation")) {
+                            err("An \u201Cimg\u201D element which has an"
+                                    + " \u201Calt\u201D attribute whose value"
+                                    + " is the empty string must not have a"
+                                    + " \u201Crole\u201D attribute with any"
+                                    + " value other than \u201Cnone\u201D or"
+                                    + " \u201Cpresentation\u201D");
+                        }
                     }
                 }
             } else if ("table" == localName) {
@@ -1963,11 +1974,16 @@ public class Assertions extends Checker {
                     }
                 }
             } else if ("main" == localName) {
-                if (hasMain) {
-                    err("A document must not include more than one"
-                            + " \u201Cmain\u201D element.");
+                if (followW3Cspec) {
+                    if (hasVisibleMain) {
+                        if (atts.getIndex("", "hidden") < 0) {
+                            err("A document must not include more than one visible"
+                                    + " \u201Cmain\u201D element.");
+                        }
+                    } else {
+                        hasVisibleMain = true;
+                    }
                 }
-                hasMain = true;
             } else if ("h1" == localName) {
                 if (currentSectioningDepth > 1) {
                     warn(h1WarningMessage);
@@ -2116,6 +2132,33 @@ public class Assertions extends Checker {
                     if (atts.getIndex("", "async") >= 0) {
                         err("Element \u201Cscript\u201D must not have attribute \u201Casync\u201D unless attribute \u201Csrc\u201D is also specified.");
                     }
+                    if (atts.getIndex("", "integrity") >= 0) {
+                        err("Element \u201Cscript\u201D must not have attribute"
+                                + " \u201Cintegrity\u201D unless attribute"
+                                + " \u201Csrc\u201D is also specified.");
+                    }
+                }
+                if (atts.getIndex("", "type") > -1
+                        && AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                                "module", atts.getValue("", "type"))) {
+                    if (atts.getIndex("", "integrity") > -1) {
+                        err("A \u201Cscript\u201D element with an"
+                                + " \u201Cintegrity\u201D attribute must not have a"
+                                + " \u201Ctype\u201D attribute with the value"
+                                + " \u201Cmodule\u201D.");
+                    }
+                    if (atts.getIndex("", "defer") > -1) {
+                        err("A \u201Cscript\u201D element with a"
+                                + " \u201Cdefer\u201D attribute must not have a"
+                                + " \u201Ctype\u201D attribute with the value"
+                                + " \u201Cmodule\u201D.");
+                    }
+                    if (atts.getIndex("", "nomodule") > -1) {
+                        err("A \u201Cscript\u201D element with a"
+                                + " \u201Cnomodule\u201D attribute must not have a"
+                                + " \u201Ctype\u201D attribute with the value"
+                                + " \u201Cmodule\u201D.");
+                    }
                 }
             }
 
@@ -2127,21 +2170,20 @@ public class Assertions extends Checker {
             // labelable elements
             if ("button" == localName
                     || ("input" == localName
-                            && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                            && !AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                     "hidden", atts.getValue("", "type")))
-                    || "keygen" == localName || "meter" == localName
-                    || "output" == localName || "progress" == localName
-                    || "select" == localName || "textarea" == localName) {
+                    || "meter" == localName || "output" == localName
+                    || "progress" == localName || "select" == localName
+                    || "textarea" == localName) {
                 for (Map.Entry<StackNode, Locator> entry : openLabels.entrySet()) {
                     StackNode node = entry.getKey();
                     Locator locator = entry.getValue();
                     if (node.isLabeledDescendants()) {
                         err("The \u201Clabel\u201D element may contain at most"
                                 + " one \u201Cbutton\u201D, \u201Cinput\u201D,"
-                                + " \u201Ckeygen\u201D, \u201Cmeter\u201D,"
-                                + " \u201Coutput\u201D, \u201Cprogress\u201D,"
-                                + " \u201Cselect\u201D, or \u201Ctextarea\u201D"
-                                + " descendant.");
+                                + " \u201Cmeter\u201D, \u201Coutput\u201D,"
+                                + " \u201Cprogress\u201D, \u201Cselect\u201D,"
+                                + " or \u201Ctextarea\u201D descendant.");
                         warn("\u201Clabel\u201D element with multiple labelable"
                                 + " descendants.", locator);
                     } else {
@@ -2174,14 +2216,6 @@ public class Assertions extends Checker {
                 err("When the attribute \u201Clang\u201D in no namespace and the attribute \u201Clang\u201D in the XML namespace are both present, they must have the same value.");
             }
 
-            // contextmenu
-            if (contextmenu != null) {
-                contextmenuReferences.add(new IdrefLocator(
-                        new LocatorImpl(getDocumentLocator()), contextmenu));
-            }
-            if ("menu" == localName) {
-                menuIds.addAll(ids);
-            }
             if (role != null && owns != null) {
                 for (Set<String> value : REQUIRED_ROLE_ANCESTOR_BY_DESCENDANT.values()) {
                     if (value.contains(role)) {
@@ -2216,15 +2250,18 @@ public class Assertions extends Checker {
                 formElementIds.addAll(ids);
             }
 
-            if (("input" == localName && !hidden) || "textarea" == localName
-                    || "select" == localName || "button" == localName
-                    || "keygen" == localName || "output" == localName) {
+            if (("button" == localName //
+                    || "input" == localName && !hidden) //
+                    || "meter" == localName //
+                    || "output" == localName //
+                    || "progress" == localName //
+                    || "select" == localName //
+                    || "textarea" == localName) {
                 formControlIds.addAll(ids);
             }
 
             if ("button" == localName || "fieldset" == localName
                     || ("input" == localName && !hidden)
-                    || "keygen" == localName
                     || "object" == localName || "output" == localName
                     || "select" == localName || "textarea" == localName) {
                 String formVal = atts.getValue("", "form");
@@ -2242,8 +2279,8 @@ public class Assertions extends Checker {
 
             // input@type=button
             if ("input" == localName
-                    && lowerCaseLiteralEqualsIgnoreAsciiCaseString("button",
-                            atts.getValue("", "type"))) {
+                    && AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                            "button", atts.getValue("", "type"))) {
                 if (atts.getValue("", "value") == null
                         || "".equals(atts.getValue("", "value"))) {
                     err("Element \u201Cinput\u201D with attribute \u201Ctype\u201D whose value is \u201Cbutton\u201D must have non-empty attribute \u201Cvalue\u201D.");
@@ -2269,15 +2306,15 @@ public class Assertions extends Checker {
                 }
             }
             if ("meta" == localName) {
-                if (lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                         "content-language", atts.getValue("", "http-equiv"))) {
                     err("Using the \u201Cmeta\u201D element to specify the"
                             + " document-wide default language is obsolete."
                             + " Consider specifying the language on the root"
                             + " element instead.");
-                } else if (lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                } else if (AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                         "x-ua-compatible", atts.getValue("", "http-equiv"))
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                        && !AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                 "ie=edge", atts.getValue("", "content"))) {
                     err("A \u201Cmeta\u201D element with an"
                             + " \u201Chttp-equiv\u201D attribute whose value is"
@@ -2301,18 +2338,55 @@ public class Assertions extends Checker {
                     }
                     hasMetaCharset = true;
                 }
-                if (atts.getIndex("", "name") > -1
-                        && "description".equals(atts.getValue("", "name"))) {
-                    if (hasMetaDescription) {
-                        err("A document must not include more than one"
-                                + " \u201Cmeta\u201D element with its"
-                                + " \u201Cname\u201D attribute set to the value"
-                                + " \u201Cdescription\u201D.");
+                if (atts.getIndex("", "name") > -1) {
+                    if ("description".equals(atts.getValue("", "name"))) {
+                        if (hasMetaDescription) {
+                            err("A document must not include more than one"
+                                    + " \u201Cmeta\u201D element with its"
+                                    + " \u201Cname\u201D attribute set to the"
+                                    + " value \u201Cdescription\u201D.");
+                        }
+                        hasMetaDescription = true;
                     }
-                    hasMetaDescription = true;
+                    if ("viewport".equals(atts.getValue("", "name"))
+                            && atts.getIndex("", "content") > -1) {
+                        String contentVal = atts.getValue("",
+                                "content").toLowerCase();
+                        if (contentVal.contains("user-scalable=no")
+                                || contentVal.contains("maximum-scale=1.0")) {
+                            warn("Consider avoiding viewport values that"
+                                    + " prevent users from resizing documents.");
+                        }
+                    }
+                    if ("theme-color".equals(atts.getValue("", "name"))
+                            && atts.getIndex("", "content") > -1) {
+                        String contentVal = atts.getValue("",
+                                "content").toLowerCase();
+                        try {
+                            Color.THE_INSTANCE.checkValid(contentVal);
+                        } catch (DatatypeException e) {
+                            try {
+                                if (getErrorHandler() != null) {
+                                    String msg = e.getMessage();
+                                    if (e instanceof Html5DatatypeException) {
+                                        msg = msg.substring(
+                                                msg.indexOf(": ") + 2);
+                                    }
+                                    VnuBadAttrValueException ex = //
+                                            new VnuBadAttrValueException(
+                                                    localName, uri, "content",
+                                                    contentVal, msg,
+                                                    getDocumentLocator(),
+                                                    Color.class, false);
+                                    getErrorHandler().error(ex);
+                                }
+                            } catch (ClassNotFoundException ce) {
+                            }
+                        }
+                    }
                 }
                 if (atts.getIndex("", "http-equiv") > -1
-                        && lowerCaseLiteralEqualsIgnoreAsciiCaseString(
+                        && AttributeUtil.lowerCaseLiteralEqualsIgnoreAsciiCaseString(
                                 "content-type",
                                 atts.getValue("", "http-equiv"))) {
                     if (hasMetaCharset) {
@@ -2333,40 +2407,96 @@ public class Assertions extends Checker {
                 }
             }
             if ("link" == localName) {
-                String relVal = atts.getValue("", "rel");
+                boolean hasRel = false;
+                List<String> relList = new ArrayList<>();
+                if (atts.getIndex("", "rel") > -1) {
+                    hasRel = true;
+                    Collections.addAll(relList, //
+                            atts.getValue("", "rel") //
+                            .toLowerCase().split("\\s+"));
+                }
                 if (atts.getIndex("", "as") > -1
-                        && atts.getIndex("", "rel") > -1
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "preload", atts.getValue("", "rel"))) {
+                        && ((relList != null && !relList.contains("preload")
+                                || !hasRel))) {
                     err("A \u201Clink\u201D element with an"
                             + " \u201Cas\u201D attribute must have a"
-                            + " \u201Crel\u201D attribute with the value"
-                            + " \u201Cpreload\u201D.");
+                            + " \u201Crel\u201D attribute that contains the"
+                            + " value \u201Cpreload\u201D.");
+                }
+                if (atts.getIndex("", "integrity") > -1
+                        && ((relList != null && !relList.contains("stylesheet")
+                                || !hasRel))) {
+                    err("A \u201Clink\u201D element with an"
+                            + " \u201Cintegrity\u201D attribute must have a"
+                            + " \u201Crel\u201D attribute that contains the"
+                            + " value \u201Cstylesheet\u201D.");
+                }
+                if (atts.getIndex("", "sizes") > -1
+                        && ((relList != null && !relList.contains("icon")
+                                && !relList.contains("apple-touch-icon"))
+                                || !hasRel)) {
+                    err("A \u201Clink\u201D element with a"
+                            + " \u201Csizes\u201D attribute must have a"
+                            + " \u201Crel\u201D attribute that contains the"
+                            + " value \u201Cicon\u201D or the value"
+                            + " \u201Capple-touch-icon\u201D.");
+                }
+                if (atts.getIndex("", "color") > -1 //
+                        && (!hasRel || (relList != null
+                                && !relList.contains("mask-icon")))) {
+                    err("A \u201Clink\u201D element with a"
+                            + " \u201Ccolor\u201D attribute must have a"
+                            + " \u201Crel\u201D attribute that contains"
+                            + " the value \u201Cmask-icon\u201D.");
+                }
+                if (atts.getIndex("", "scope") > -1 //
+                        && ((relList != null
+                                && !relList.contains("serviceworker"))
+                                || !hasRel)) {
+                    err("A \u201Clink\u201D element with a"
+                            + " \u201Cscope\u201D attribute must have a"
+                            + " \u201Crel\u201D attribute that contains the"
+                            + " value \u201Cserviceworker\u201D.");
+                }
+                if (atts.getIndex("", "updateviacache") > -1 //
+                        && ((relList != null
+                                && !relList.contains("serviceworker"))
+                                || !hasRel)) {
+                    err("A \u201Clink\u201D element with an"
+                            + " \u201Cupdateviacache\u201D attribute must have a"
+                            + " \u201Crel\u201D attribute that contains the"
+                            + " value \u201Cserviceworker\u201D.");
+                }
+                if (atts.getIndex("", "workertype") > -1 //
+                        && ((relList != null
+                                && !relList.contains("serviceworker"))
+                                || !hasRel)) {
+                    err("A \u201Clink\u201D element with a"
+                            + " \u201Cworkertype\u201D attribute must have a"
+                            + " \u201Crel\u201D attribute that contains the"
+                            + " value \u201Cserviceworker\u201D.");
                 }
                 if ((ancestorMask & BODY_MASK) != 0
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "dns-prefetch", relVal)
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "pingback", relVal)
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "preconnect", relVal)
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "prefetch", relVal)
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "prerender", relVal)
-                        && !lowerCaseLiteralEqualsIgnoreAsciiCaseString(
-                                "stylesheet", relVal)
+                        && (relList != null
+                                && !(relList.contains("dns-prefetch")
+                                        || relList.contains("pingback")
+                                        || relList.contains("preconnect")
+                                        || relList.contains("prefetch")
+                                        || relList.contains("preload")
+                                        || relList.contains("prerender")
+                                        || relList.contains("stylesheet")))
                         && atts.getIndex("", "itemprop") < 0
                         && atts.getIndex("", "property") < 0) {
                     err("A \u201Clink\u201D element must not appear"
                             + " as a descendant of a \u201Cbody\u201D element"
                             + " unless the \u201Clink\u201D element has an"
                             + " \u201Citemprop\u201D attribute or has a"
-                            + " \u201Crel\u201D attribute whose value is one of"
+                            + " \u201Crel\u201D attribute whose value contains"
                             + " \u201Cdns-prefetch\u201D,"
                             + " \u201Cpingback\u201D,"
                             + " \u201Cpreconnect\u201D,"
                             + " \u201Cprefetch\u201D,"
+                            + " \u201Cpreload\u201D,"
                             + " \u201Cprerender\u201D, or"
                             + " \u201Cstylesheet\u201D.");
                 }
@@ -2600,6 +2730,46 @@ public class Assertions extends Checker {
                     child.setOptionNeeded();
                 }
             }
+            if (localName.contains("-")) {
+                if (atts.getIndex("", "is") > -1) {
+                    err("Autonomous custom elements must not specify the"
+                            + " \u201cis\u201d attribute.");
+                }
+                try {
+                    CustomElementName.THE_INSTANCE.checkValid(localName);
+                } catch (DatatypeException e) {
+                    try {
+                        if (getErrorHandler() != null) {
+                            String msg = e.getMessage();
+                            if (e instanceof Html5DatatypeException) {
+                                msg = msg.substring(msg.indexOf(": ") + 2);
+                            }
+                            VnuBadElementNameException ex = new VnuBadElementNameException(
+                                    localName, uri, msg, getDocumentLocator(),
+                                    CustomElementName.class, false);
+                            getErrorHandler().error(ex);
+                        }
+                    } catch (ClassNotFoundException ce) {
+                    }
+                }
+            }
+        } else if ("http://n.validator.nu/custom-elements/" == uri) {
+            /*
+             * For elements with names containing "-" (custom elements), the
+             * customelements/NamespaceChanging* code exposes them to jing as
+             * elements in the http://n.validator.nu/custom-elements/ namespace.
+             * Therefore our RelaxNG schema allows those elements. However,
+             * schematronequiv.Assertions still sees those elements as being in
+             * the HTML namespace, so here we need to emit an error for the case
+             * where, in source transmitted with an XML content type, somebody
+             * (for whatever reason) has elements in their markup which they
+             * have explicitly placed in that namespace (otherwise, due to
+             * allowing those elements in our RelaxNG schema, Jing on its own
+             * won't emit any error for them).
+             */
+            err("Element \u201c" + localName + "\u201d from namespace"
+                    + " \u201chttp://n.validator.nu/custom-elements/\u201d"
+                    + " not allowed.");
         } else {
             StackNode child = new StackNode(ancestorMask, null, role,
                     activeDescendant, forAttr);

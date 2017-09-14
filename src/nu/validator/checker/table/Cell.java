@@ -1,22 +1,23 @@
 /*
  * Copyright (c) 2006 Henri Sivonen
+ * Copyright (c) 2017 Mozilla Foundation
  *
- * Permission is hereby granted, free of charge, to any person obtaining a 
- * copy of this software and associated documentation files (the "Software"), 
- * to deal in the Software without restriction, including without limitation 
- * the rights to use, copy, modify, merge, publish, distribute, sublicense, 
- * and/or sell copies of the Software, and to permit persons to whom the 
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
  * Software is furnished to do so, subject to the following conditions:
  *
- * The above copyright notice and this permission notice shall be included in 
+ * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
  *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
- * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
 
@@ -29,25 +30,15 @@ import org.xml.sax.SAXParseException;
 
 /**
  * A table cell for table integrity checking.
- * 
+ *
  * @version $Id$
  * @author hsivonen
  */
 final class Cell implements Locator {
 
-    // See
-    // http://mxr-test.landfill.bugzilla.org/mxr-test/seamonkey/source/content/html/content/src/nsHTMLTableCellElement.cpp
-    // for the source of these magic numbers.
-
-    /**
-     * Magic number from Gecko.
-     */
     private static final int MAX_COLSPAN = 1000;
 
-    /**
-     * Magic number from Gecko.
-     */
-    private static final int MAX_ROWSPAN = 8190;
+    private static final int MAX_ROWSPAN = 65534;
 
     /**
      * The column in which this cell starts. (Zero before positioning.)
@@ -57,14 +48,14 @@ final class Cell implements Locator {
     /**
      * The first row in the row group onto which this cell does not span.
      * (rowspan before positioning)
-     * 
-     * <p>However, <code>Integen.MAX_VALUE</code> is a magic value that means 
+     *
+     * <p>However, <code>MAX_ROWSPAN</code> is a magic value that means
      * <code>rowspan=0</code>.
      */
     private int bottom;
 
     /**
-     * The first column into which this cell does not span. 
+     * The first column into which this cell does not span.
      * (colspan before positioning.)
      */
     private int right;
@@ -120,29 +111,25 @@ final class Cell implements Locator {
             this.systemId = locator.getSystemId();
         }
         if (rowspan > MAX_ROWSPAN) {
-            warn("A rowspan attribute has the value " + rowspan
-                    + ", which exceeds the magic Gecko limit of " + MAX_ROWSPAN
-                    + ".");
+            err("The value of the \u201Crowspan\u201D attribute must be less"
+                    + " than or equal to " + MAX_ROWSPAN + ".");
+            rowspan = MAX_ROWSPAN;
         }
         if (colspan > MAX_COLSPAN) {
-            warn("A colspan attribute has the value " + colspan
-                    + ", which exceeds the magic browser limit of "
-                    + MAX_COLSPAN + ".");
-        }
-        if (rowspan == Integer.MAX_VALUE) {
-            throw new SAXException(
-                    "Implementation limit reached. Table row counter overflowed.");
+            err("The value of the \u201Ccolspan\u201D attribute must be less"
+                    + " than or equal to " + MAX_COLSPAN + ".");
+            colspan = MAX_COLSPAN;
         }
         this.left = 0;
         this.right = colspan;
-        this.bottom = (rowspan == 0 ? Integer.MAX_VALUE : rowspan);
+        this.bottom = (rowspan == 0 ? MAX_ROWSPAN: rowspan);
         this.headers = headers;
         this.header = header;
     }
 
     /**
      * Returns the headers.
-     * 
+     *
      * @return the headers
      */
     public String[] getHeadings() {
@@ -151,7 +138,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the header.
-     * 
+     *
      * @return the header
      */
     public boolean isHeader() {
@@ -191,7 +178,7 @@ final class Cell implements Locator {
             throw new SAXException(
                     "Implementation limit reached. Table column counter overflowed.");
         }
-        if (this.bottom != Integer.MAX_VALUE) {
+        if (this.bottom != MAX_ROWSPAN) {
             this.bottom += top;
             if (this.bottom < 1) {
                 throw new SAXException(
@@ -204,17 +191,9 @@ final class Cell implements Locator {
         return row >= bottom;
     }
 
-    public int freeSlot(int potentialSlot) {
-        if (potentialSlot < left || potentialSlot >= right) {
-            return potentialSlot;
-        } else {
-            return right;
-        }
-    }
-
     /**
      * Returns the bottom.
-     * 
+     *
      * @return the bottom
      */
     public int getBottom() {
@@ -223,7 +202,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the left.
-     * 
+     *
      * @return the left
      */
     int getLeft() {
@@ -232,7 +211,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the right.
-     * 
+     *
      * @return the right
      */
     int getRight() {
@@ -240,7 +219,7 @@ final class Cell implements Locator {
     }
 
     public void errIfNotRowspanZero(String rowGroupType) throws SAXException {
-        if (this.bottom != Integer.MAX_VALUE) {
+        if (this.bottom != MAX_ROWSPAN) {
             err("Table cell spans past the end of its "
                     + (rowGroupType == null ? "implicit row group"
                             : "row group established by a \u201C" + rowGroupType
@@ -251,7 +230,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the columnNumber.
-     * 
+     *
      * @return the columnNumber
      */
     @Override
@@ -261,7 +240,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the lineNumber.
-     * 
+     *
      * @return the lineNumber
      */
     @Override
@@ -271,7 +250,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the publicId.
-     * 
+     *
      * @return the publicId
      */
     @Override
@@ -281,7 +260,7 @@ final class Cell implements Locator {
 
     /**
      * Returns the systemId.
-     * 
+     *
      * @return the systemId
      */
     @Override

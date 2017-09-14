@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2005, 2006 Henri Sivonen
- * Copyright (c) 2007-2016 Mozilla Foundation
+ * Copyright (c) 2007-2017 Mozilla Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a 
  * copy of this software and associated documentation files (the "Software"), 
@@ -24,6 +24,8 @@
 package nu.validator.servlet;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -51,13 +53,10 @@ import nu.validator.checker.XmlPiChecker;
 import nu.validator.checker.jing.CheckerSchema;
 import nu.validator.gnu.xml.aelfred2.FatalSAXException;
 import nu.validator.gnu.xml.aelfred2.SAXDriver;
-import nu.validator.htmlparser.common.DoctypeExpectation;
 import nu.validator.htmlparser.common.DocumentMode;
 import nu.validator.htmlparser.common.DocumentModeHandler;
 import nu.validator.htmlparser.common.Heuristics;
 import nu.validator.htmlparser.common.XmlViolationPolicy;
-import nu.validator.htmlparser.io.ChangingEncodingException;
-import nu.validator.htmlparser.sax.CannotRecoverException;
 import nu.validator.htmlparser.sax.HtmlParser;
 import nu.validator.htmlparser.sax.HtmlSerializer;
 import nu.validator.htmlparser.sax.XmlSerializer;
@@ -87,6 +86,7 @@ import nu.validator.xml.ContentTypeParser.NonXmlContentTypeException;
 import nu.validator.xml.DataUriEntityResolver;
 import nu.validator.xml.IdFilter;
 import nu.validator.xml.LanguageDetectingXMLReaderWrapper;
+import nu.validator.xml.UseCountingXMLReaderWrapper;
 import nu.validator.xml.NamespaceDroppingXMLReaderWrapper;
 import nu.validator.xml.NullEntityResolver;
 import nu.validator.xml.PrudentHttpEntityResolver;
@@ -95,6 +95,7 @@ import nu.validator.xml.SystemErrErrorHandler;
 import nu.validator.xml.TypedInputSource;
 import nu.validator.xml.WiretapXMLReaderWrapper;
 import nu.validator.xml.XhtmlSaxEmitter;
+import nu.validator.xml.customelements.NamespaceChangingSchemaWrapper;
 import nu.validator.xml.templateelement.TemplateElementDroppingSchemaWrapper;
 import nu.validator.xml.dataattributes.DataAttributeDroppingSchemaWrapper;
 import nu.validator.xml.langattributes.XmlLangAttributeDroppingSchemaWrapper;
@@ -103,6 +104,7 @@ import nu.validator.xml.roleattributes.RoleAttributeFilteringSchemaWrapper;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.EntityResolver;
 import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXNotRecognizedException;
@@ -271,6 +273,12 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
 
     private boolean laxType = false;
 
+    private boolean aboutLegacyCompat = false;
+
+    private boolean xhtml1Doctype = false;
+
+    private boolean html4Doctype = false;
+
     protected ContentHandler contentHandler;
 
     protected XhtmlSaxEmitter emitter;
@@ -290,6 +298,12 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
     private static String[] preloadedSchemaUrls;
 
     private static Schema[] preloadedSchemas;
+
+    private final static String cannotRecover = "Cannot recover after last"
+            + " error. Any further errors will be ignored.";
+
+    private final static String changingEncoding = "Changing encoding at this"
+            + " point would need non-streamable behavior.";
 
     private final static String[] DENY_LIST = System.getProperty(
             "nu.validator.servlet.deny-list", "").split("\\s+");
@@ -313,6 +327,11 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
 
     private static final long SIZE_LIMIT = Integer.parseInt(System.getProperty(
             "nu.validator.servlet.max-file-size", "2097152"));
+
+    private static String systemFilterString = "";
+
+    private final static String FILTER_FILE = System.getProperty(
+            "nu.validator.servlet.filterfile", "resources/message-filters.txt");
 
     protected String schemaUrls = null;
 
@@ -352,9 +371,13 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
 
     private Deque<Section> outline;
 
+    private Deque<Section> headingOutline;
+
     private boolean showSource;
 
     private boolean showOutline;
+
+    private boolean checkErrorPages;
 
     private boolean schemaIsDefault;
 
@@ -408,7 +431,7 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             VERSION = (System.getProperty("nu.validator.servlet.version",
                     props.getProperty("nu.validator.servlet.version",
                             "Living Validator"))).toCharArray();
-            USER_AGENT= (System.getProperty("nu.validator.servlet.user-agent",
+            USER_AGENT = (System.getProperty("nu.validator.servlet.user-agent",
                     props.getProperty("nu.validator.servlet.user-agent",
                             "Validator.nu/LV")));
 
@@ -539,6 +562,9 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                 if (isTemplateElementDroppingSchema(u)) {
                     s = new TemplateElementDroppingSchemaWrapper(s);
                 }
+                if (isCustomElementNamespaceChangingSchema(u)) {
+                    s = new NamespaceChangingSchemaWrapper(s);
+                }
                 preloadedSchemas[i] = s;
                 i++;
             }
@@ -548,6 +574,33 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             html5spec = Html5SpecBuilder.parseSpec(LocalCacheEntityResolver.getHtml5SpecAsStream());
 
             log4j.debug("Spec read.");
+
+            if (new File(FILTER_FILE).isFile()) {
+                log4j.debug("Reading filter file " + FILTER_FILE);
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(new FileInputStream(FILTER_FILE),
+                                "UTF-8"))) {
+                    StringBuilder sb = new StringBuilder();
+                    String filterline;
+                    String pipe = "";
+                    while ((filterline = reader.readLine()) != null) {
+                        if (filterline.startsWith("#")) {
+                            continue;
+                        }
+                        sb.append(pipe);
+                        sb.append(filterline);
+                        pipe = "|";
+                    }
+                    if (sb.length() != 0) {
+                        if ("".equals(systemFilterString)) {
+                            systemFilterString = sb.toString();
+                        } else {
+                            systemFilterString += "|" + sb.toString();
+                        }
+                    }
+                }
+                log4j.debug("Filter file read.");
+            }
 
             log4j.debug("Initializing language detector.");
 
@@ -559,6 +612,7 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         }
     }
 
+    @SuppressWarnings("deprecation")
     protected static String scrub(CharSequence s) {
         return Normalizer.normalize(
                 CharacterUtil.prudentlyScrubCharacterData(s), Normalizer.NFC);
@@ -595,6 +649,16 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
     }
 
     private static boolean isTemplateElementDroppingSchema(String key) {
+        return ("http://s.validator.nu/xhtml5.rnc".equals(key)
+                || "http://s.validator.nu/html5.rnc".equals(key)
+                || "http://s.validator.nu/html5-all.rnc".equals(key)
+                || "http://s.validator.nu/xhtml5-all.rnc".equals(key)
+                || "http://s.validator.nu/html5-its.rnc".equals(key)
+                || "http://s.validator.nu/xhtml5-rdfalite.rnc".equals(key)
+                || "http://s.validator.nu/html5-rdfalite.rnc".equals(key));
+    }
+
+    private static boolean isCustomElementNamespaceChangingSchema(String key) {
         return ("http://s.validator.nu/xhtml5.rnc".equals(key)
                 || "http://s.validator.nu/html5.rnc".equals(key)
                 || "http://s.validator.nu/html5-all.rnc".equals(key)
@@ -746,15 +810,71 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
 
         setup();
 
+        String filterString = systemFilterString;
+
+        String filterPatternParam = request.getParameter("filterpattern");
+        if (filterPatternParam != null && !"".equals(filterPatternParam)) {
+            if ("".equals(filterString)) {
+                filterString = scrub(filterPatternParam);
+            } else {
+                filterString += "|" + scrub(filterPatternParam);
+            }
+        }
+
+        String filterUrl = request.getParameter("filterurl");
+        if (filterUrl != null && !"".equals(filterUrl)) {
+            try {
+                InputSource filterFile = //
+                        (new PrudentHttpEntityResolver(-1, true, null)) //
+                                .resolveEntity(null, filterUrl);
+                StringBuilder sb = new StringBuilder();
+                BufferedReader reader = //
+                        new BufferedReader(new InputStreamReader(
+                                filterFile.getByteStream()));
+                String line;
+                String pipe = "";
+                while ((line = reader.readLine()) != null) {
+                    if (line.startsWith("#")) {
+                        continue;
+                    }
+                    sb.append(pipe);
+                    sb.append(line);
+                    pipe = "|";
+                }
+                if (sb.length() != 0) {
+                    if (!"".equals(filterString)) {
+                        filterString = scrub(sb.toString());
+                    } else {
+                        filterString += "|" + scrub(sb.toString());
+                    }
+                }
+            } catch (Exception e) {
+                response.sendError(500, e.getMessage());
+            }
+        }
+        Pattern filterPattern = null;
+        if (!"".equals(filterString)) {
+            filterPattern = Pattern.compile(filterString);
+        }
         if (request.getParameter("useragent") != null) {
             userAgent = scrub(request.getParameter("useragent"));
         } else {
             userAgent = USER_AGENT;
         }
+        if (request.getParameter("acceptlanguage") != null) {
+            request.setAttribute(
+                    "http://validator.nu/properties/accept-language",
+                    scrub(request.getParameter("acceptlanguage")));
+        }
         Object inputType = request.getAttribute("nu.validator.servlet.MultipartFormDataFilter.type");
         showSource = (request.getParameter("showsource") != null);
         showSource = (showSource || "textarea".equals(inputType));
         showOutline = (request.getParameter("showoutline") != null);
+        if (request.getParameter("checkerrorpages") != null) {
+            request.setAttribute(
+                    "http://validator.nu/properties/ignore-response-status",
+                    true);
+        }
         if (request.getParameter("showimagereport") != null) {
             imageCollector = new ImageCollector(sourceCode);
         }
@@ -802,25 +922,25 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                             new XmlSerializer(out);
                 }
                 emitter = new XhtmlSaxEmitter(contentHandler);
-                errorHandler = new MessageEmitterAdapter(sourceCode,
-                        showSource, imageCollector, lineOffset, false,
-                        new XhtmlMessageEmitter(contentHandler));
+                errorHandler = new MessageEmitterAdapter(filterPattern,
+                        sourceCode, showSource, imageCollector, lineOffset,
+                        false, new XhtmlMessageEmitter(contentHandler));
                 PageEmitter.emit(contentHandler, this);
             } else {
                 if (outputFormat == OutputFormat.TEXT) {
                     response.setContentType("text/plain; charset=utf-8");
-                    errorHandler = new MessageEmitterAdapter(sourceCode,
-                            showSource, null, lineOffset, false,
+                    errorHandler = new MessageEmitterAdapter(filterPattern,
+                            sourceCode, showSource, null, lineOffset, false,
                             new TextMessageEmitter(out, asciiQuotes));
                 } else if (outputFormat == OutputFormat.GNU) {
                     response.setContentType("text/plain; charset=utf-8");
-                    errorHandler = new MessageEmitterAdapter(sourceCode,
-                            showSource, null, lineOffset, false,
+                    errorHandler = new MessageEmitterAdapter(filterPattern,
+                            sourceCode, showSource, null, lineOffset, false,
                             new GnuMessageEmitter(out, asciiQuotes));
                 } else if (outputFormat == OutputFormat.XML) {
                     response.setContentType("application/xml");
-                    errorHandler = new MessageEmitterAdapter(sourceCode,
-                            showSource, null, lineOffset, false,
+                    errorHandler = new MessageEmitterAdapter(filterPattern,
+                            sourceCode, showSource, null, lineOffset, false,
                             new XmlMessageEmitter(new XmlSerializer(out)));
                 } else if (outputFormat == OutputFormat.JSON) {
                     if (callback == null) {
@@ -828,8 +948,8 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                     } else {
                         response.setContentType("application/javascript; charset=utf-8");
                     }
-                    errorHandler = new MessageEmitterAdapter(sourceCode,
-                            showSource, null, lineOffset, false,
+                    errorHandler = new MessageEmitterAdapter(filterPattern,
+                            sourceCode, showSource, null, lineOffset, false,
                             new JsonMessageEmitter(
                                     new nu.validator.json.Serializer(out),
                                     callback));
@@ -876,16 +996,6 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         } // else auto
 
         laxType = (request.getParameter("laxtype") != null);
-    }
-
-    private boolean useHtml5Schema() {
-        if ("".equals(schemaUrls)) {
-            return false;
-        }
-        return (schemaUrls.contains("http://s.validator.nu/html5.rnc")
-                || schemaUrls.contains("http://s.validator.nu/html5-all.rnc")
-                || schemaUrls.contains("http://s.validator.nu/html5-its.rnc")
-                || schemaUrls.contains("http://s.validator.nu/html5-rdfalite.rnc"));
     }
 
     private boolean useXhtml5Schema() {
@@ -941,7 +1051,7 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             }
         }
         httpRes = new PrudentHttpEntityResolver(SIZE_LIMIT, laxType,
-                errorHandler);
+                errorHandler, request);
         httpRes.setUserAgent(userAgent);
         dataRes = new DataUriEntityResolver(httpRes, laxType, errorHandler);
         contentTypeParser = new ContentTypeParser(errorHandler, laxType);
@@ -1024,15 +1134,16 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                 documentInput.setEncoding(charsetOverride);
             }
             if (showOutline) {
-                reader = new OutlineBuildingXMLReaderWrapper(reader, request);
+                reader = new OutlineBuildingXMLReaderWrapper(reader, request, false);
+                reader = new OutlineBuildingXMLReaderWrapper(reader, request, true);
             }
             reader.parse(documentInput);
             if (showOutline) {
                 outline = (Deque<Section>) request.getAttribute(
                         "http://validator.nu/properties/document-outline");
+                headingOutline = (Deque<Section>) request.getAttribute(
+                        "http://validator.nu/properties/heading-outline");
             }
-        } catch (CannotRecoverException e) {
-        } catch (ChangingEncodingException e) {
         } catch (CannotFindPresetSchemaException e) {
         } catch (ResourceNotRetrievableException e) {
             log4j.debug(e.getMessage());
@@ -1047,7 +1158,10 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         } catch (TooManyErrorsException e) {
             errorHandler.fatalError(e);
         } catch (SAXException e) {
-            log4j.debug("SAXException: " + e.getMessage());
+            String msg = e.getMessage();
+            if (!cannotRecover.equals(msg) && !changingEncoding.equals(msg)) {
+                log4j.debug("SAXException: " + e.getMessage());
+            }
         } catch (IOException e) {
             isHtmlOrXhtml = false;
             errorHandler.ioError(e);
@@ -1076,7 +1190,7 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         }
         if (isHtmlOrXhtml) {
             XhtmlOutlineEmitter outlineEmitter = new XhtmlOutlineEmitter(
-                    contentHandler, outline);
+                    contentHandler, outline, headingOutline);
             outlineEmitter.emitHeadings();
             outlineEmitter.emit();
             emitDetails();
@@ -1115,6 +1229,15 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             if (laxType) {
                 stats.incrementField(Statistics.Field.LAX_TYPE);
             }
+            if (aboutLegacyCompat) {
+                stats.incrementField(Statistics.Field.ABOUT_LEGACY_COMPAT);
+            }
+            if (xhtml1Doctype) {
+                stats.incrementField(Statistics.Field.XHTML1_DOCTYPE);
+            }
+            if (html4Doctype) {
+                stats.incrementField(Statistics.Field.HTML4_DOCTYPE);
+            }
             if (imageCollector != null) {
                 stats.incrementField(Statistics.Field.IMAGE_REPORT);
             }
@@ -1139,9 +1262,10 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             }
             if (htmlParser != null) {
                 stats.incrementField(Statistics.Field.INPUT_HTML);
-            }
-            if (xmlParser != null) {
+            } else if (xmlParser != null) {
                 stats.incrementField(Statistics.Field.INPUT_XML);
+            } else {
+                stats.incrementField(Statistics.Field.INPUT_UNSUPPORTED);
             }
             switch (outputFormat) {
                 case GNU:
@@ -1236,6 +1360,156 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                 stats.incrementField(Statistics.Field.LOGIC_ERROR);
             }
             if (request.getAttribute(
+                    "http://validator.nu/properties/rel-alternate-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-alternate-found")) {
+                stats.incrementField(Statistics.Field.REL_ALTERNATE_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-author-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-author-found")) {
+                stats.incrementField(Statistics.Field.REL_AUTHOR_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-bookmark-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-bookmark-found")) {
+                stats.incrementField(Statistics.Field.REL_BOOKMARK_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-canonical-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-canonical-found")) {
+                stats.incrementField(Statistics.Field.REL_CANONICAL_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-dns-prefetch-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-dns-prefetch-found")) {
+                stats.incrementField(Statistics.Field.REL_DNS_PREFETCH_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-external-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-external-found")) {
+                stats.incrementField(Statistics.Field.REL_EXTERNAL_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-help-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-help-found")) {
+                stats.incrementField(Statistics.Field.REL_HELP_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-icon-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-icon-found")) {
+                stats.incrementField(Statistics.Field.REL_ICON_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-license-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-license-found")) {
+                stats.incrementField(Statistics.Field.REL_LICENSE_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-next-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-next-found")) {
+                stats.incrementField(Statistics.Field.REL_NEXT_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-nofollow-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-nofollow-found")) {
+                stats.incrementField(Statistics.Field.REL_NOFOLLOW_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-noopener-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-noopener-found")) {
+                stats.incrementField(Statistics.Field.REL_NOOPENER_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-noreferrer-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-noreferrer-found")) {
+                stats.incrementField(Statistics.Field.REL_NOREFERRER_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-pingback-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-pingback-found")) {
+                stats.incrementField(Statistics.Field.REL_PINGBACK_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-preconnect-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-preconnect-found")) {
+                stats.incrementField(Statistics.Field.REL_PRECONNECT_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-prefetch-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-prefetch-found")) {
+                stats.incrementField(Statistics.Field.REL_PREFETCH_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-preload-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-preload-found")) {
+                stats.incrementField(Statistics.Field.REL_PRELOAD_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-prerender-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-prerender-found")) {
+                stats.incrementField(Statistics.Field.REL_PRERENDER_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-prev-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-prev-found")) {
+                stats.incrementField(Statistics.Field.REL_PREV_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-search-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-search-found")) {
+                stats.incrementField(Statistics.Field.REL_SEARCH_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-serviceworker-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-serviceworker-found")) {
+                stats.incrementField(Statistics.Field.REL_SERVICEWORKER_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-stylesheet-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-stylesheet-found")) {
+                stats.incrementField(Statistics.Field.REL_STYLESHEET_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/rel-tag-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/rel-tag-found")) {
+                stats.incrementField(Statistics.Field.REL_TAG_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/link-with-charset-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/link-with-charset-found")) {
+                stats.incrementField(Statistics.Field.LINK_WITH_CHARSET_FOUND);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/script-with-charset-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/script-with-charset-found")) {
+                stats.incrementField(Statistics.Field.SCRIPT_WITH_CHARSET_FOUND);
+            }
+            if (request.getAttribute(
                     "http://validator.nu/properties/style-in-body-found") != null
                     && (boolean) request.getAttribute(
                             "http://validator.nu/properties/style-in-body-found")) {
@@ -1258,6 +1532,12 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                     && (boolean) request.getAttribute(
                             "http://validator.nu/properties/lang-empty")) {
                 stats.incrementField(Statistics.Field.LANG_EMPTY);
+            }
+            if (request.getAttribute(
+                    "http://validator.nu/properties/apple-touch-icon-with-sizes-found") != null
+                    && (boolean) request.getAttribute(
+                            "http://validator.nu/properties/apple-touch-icon-with-sizes-found")) {
+                stats.incrementField(Statistics.Field.APPLE_TOUCH_ICON_WITH_SIZES_FOUND);
             }
             String fieldName;
             String language = (String) request.getAttribute(
@@ -1400,27 +1680,8 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                 setAllowXhtml(false);
                 loadDocumentInput();
                 newHtmlParser();
-                DoctypeExpectation doctypeExpectation;
                 int schemaId;
-                switch (parser) {
-                    case HTML:
-                        doctypeExpectation = DoctypeExpectation.HTML;
-                        schemaId = HTML5_SCHEMA;
-                        break;
-                    case HTML401_STRICT:
-                        doctypeExpectation = DoctypeExpectation.HTML401_STRICT;
-                        schemaId = XHTML1STRICT_SCHEMA;
-                        break;
-                    case HTML401_TRANSITIONAL:
-                        doctypeExpectation = DoctypeExpectation.HTML401_TRANSITIONAL;
-                        schemaId = XHTML1TRANSITIONAL_SCHEMA;
-                        break;
-                    default:
-                        doctypeExpectation = DoctypeExpectation.AUTO;
-                        schemaId = 0;
-                        break;
-                }
-                htmlParser.setDoctypeExpectation(doctypeExpectation);
+                schemaId = HTML5_SCHEMA;
                 htmlParser.setDocumentModeHandler(this);
                 reader = htmlParser;
                 if (validator == null) {
@@ -1432,6 +1693,9 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                 reader = new LanguageDetectingXMLReaderWrapper(reader, request,
                         errorHandler, documentInput.getLanguage(),
                         documentInput.getSystemId());
+                if (Statistics.STATISTICS != null) {
+                    reader = new UseCountingXMLReaderWrapper(reader, request);
+                }
                 break;
             case XML_NO_EXTERNAL_ENTITIES:
             case XML_EXTERNAL_ENTITIES_NO_VALIDATION:
@@ -1457,11 +1721,6 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                         throw se;
                     }
                     newHtmlParser();
-                    if (useHtml5Schema()) {
-                        htmlParser.setDoctypeExpectation(DoctypeExpectation.HTML);
-                    } else {
-                        htmlParser.setDoctypeExpectation(DoctypeExpectation.AUTO);
-                    }
                     htmlParser.setDocumentModeHandler(this);
                     reader = htmlParser;
                     if (validator != null) {
@@ -1470,6 +1729,10 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                     reader = new LanguageDetectingXMLReaderWrapper(reader,
                             request, errorHandler, documentInput.getLanguage(),
                             documentInput.getSystemId());
+                    if (Statistics.STATISTICS != null) {
+                        reader = new UseCountingXMLReaderWrapper(reader,
+                                request);
+                    }
                 } else {
                     if (contentType != null) {
                         if ("application/xml".equals(contentType) ||
@@ -1499,7 +1762,6 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         htmlParser.setStreamabilityViolationPolicy(XmlViolationPolicy.FATAL);
         htmlParser.setXmlnsPolicy(XmlViolationPolicy.ALTER_INFOSET);
         htmlParser.setMappingLangToXmlLang(true);
-        htmlParser.setHtml4ModeCompatibleWithXhtml1Schemata(true);
         htmlParser.setHeuristics(Heuristics.ALL);
     }
 
@@ -1554,6 +1816,9 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             reader = new LanguageDetectingXMLReaderWrapper(reader, request,
                     errorHandler, documentInput.getLanguage(),
                     documentInput.getSystemId());
+            if (Statistics.STATISTICS != null) {
+                reader = new UseCountingXMLReaderWrapper(reader, request);
+            }
         }
     }
 
@@ -1783,7 +2048,7 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
                 "pattern",
                 "(?:(?:(?:https?://\\S+)|(?:data:\\S+))(?:\\s+(?:(?:https?://\\S+)|(?:data:\\S+)))*)?");
         attrs.addAttribute("title",
-                "Space-separated list of schema IRIs. (Leave blank to let the service guess.)");
+                "Space-separated list of schema URLs. (Leave blank to let the service guess.)");
         if (schemaUrls != null) {
             attrs.addAttribute("value", scrub(schemaUrls));
         }
@@ -1798,7 +2063,7 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         attrs.addAttribute("id", "doc");
         attrs.addAttribute("pattern", "(?:(?:https?://.+)|(?:data:.+))?");
         attrs.addAttribute("title",
-                "Absolute IRI (http, https or data only) of the document to be checked.");
+                "Absolute URL (http, https or data only) of the document to be checked.");
         attrs.addAttribute("tabindex", "0");
         attrs.addAttribute("autofocus", "autofocus");
         if (document != null) {
@@ -1911,6 +2176,10 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         emitter.checkbox("showimagereport", "yes", imageCollector != null);
     }
 
+    void emitCheckErrorPagesField() throws SAXException {
+        emitter.checkbox("checkerrorpages", "yes", checkErrorPages);
+    }
+
     void rootNamespace(String namespace, Locator locator) throws SAXException {
         if (validator == null) {
             int index = -1;
@@ -1968,59 +2237,67 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
 
     @Override
     public void documentMode(DocumentMode mode, String publicIdentifier,
-            String systemIdentifier, boolean html4SpecificAdditionalErrorChecks)
+            String systemIdentifier)
             throws SAXException {
+        if (systemIdentifier != null) {
+            if ("about:legacy-compat".equals(systemIdentifier)) {
+                aboutLegacyCompat = true;
+                errorHandler.warning(new SAXParseException(
+                        "Documents should not use"
+                                + " \u201cabout:legacy-compat\u201d,"
+                                + " except if generated by legacy systems"
+                                + " that can't output the standard"
+                                + " \u201c<!DOCTYPE html>\u201d  doctype.",
+                        null));
+            }
+            if (systemIdentifier.contains("http://www.w3.org/TR/xhtml1")) {
+                xhtml1Doctype = true;
+            }
+            if (systemIdentifier.contains("http://www.w3.org/TR/html4")) {
+                html4Doctype = true;
+            }
+        }
+        if (publicIdentifier != null) {
+            if (publicIdentifier.contains("-//W3C//DTD HTML 4")) {
+                html4Doctype = true;
+            }
+        }
         if (validator == null) {
             try {
                 if ("yes".equals(request.getParameter("sniffdoctype"))) {
                     if ("-//W3C//DTD XHTML 1.0 Transitional//EN".equals(publicIdentifier)) {
                         errorHandler.info("XHTML 1.0 Transitional doctype seen. Appendix C is not supported. Proceeding anyway for your convenience. The parser is still an HTML parser, so namespace processing is not performed and \u201Cxml:*\u201D attributes are not supported. Using the schema for "
                                 + getPresetLabel(XHTML1TRANSITIONAL_SCHEMA)
-                                + "."
-                                + (html4SpecificAdditionalErrorChecks ? " HTML4-specific tokenization errors are enabled."
-                                        : ""));
+                                + ".");
                         validator = validatorByDoctype(XHTML1TRANSITIONAL_SCHEMA);
                     } else if ("-//W3C//DTD XHTML 1.0 Strict//EN".equals(publicIdentifier)) {
                         errorHandler.info("XHTML 1.0 Strict doctype seen. Appendix C is not supported. Proceeding anyway for your convenience. The parser is still an HTML parser, so namespace processing is not performed and \u201Cxml:*\u201D attributes are not supported. Using the schema for "
                                 + getPresetLabel(XHTML1STRICT_SCHEMA)
-                                + "."
-                                + (html4SpecificAdditionalErrorChecks ? " HTML4-specific tokenization errors are enabled."
-                                        : ""));
+                                + ".");
                         validator = validatorByDoctype(XHTML1STRICT_SCHEMA);
                     } else if ("-//W3C//DTD HTML 4.01 Transitional//EN".equals(publicIdentifier)) {
                         errorHandler.info("HTML 4.01 Transitional doctype seen. Using the schema for "
                                 + getPresetLabel(XHTML1TRANSITIONAL_SCHEMA)
-                                + "."
-                                + (html4SpecificAdditionalErrorChecks ? ""
-                                        : " HTML4-specific tokenization errors are not enabled."));
+                                + ".");
                         validator = validatorByDoctype(XHTML1TRANSITIONAL_SCHEMA);
                     } else if ("-//W3C//DTD HTML 4.01//EN".equals(publicIdentifier)) {
                         errorHandler.info("HTML 4.01 Strict doctype seen. Using the schema for "
                                 + getPresetLabel(XHTML1STRICT_SCHEMA)
-                                + "."
-                                + (html4SpecificAdditionalErrorChecks ? ""
-                                        : " HTML4-specific tokenization errors are not enabled."));
+                                + ".");
                         validator = validatorByDoctype(XHTML1STRICT_SCHEMA);
                     } else if ("-//W3C//DTD HTML 4.0 Transitional//EN".equals(publicIdentifier)) {
                         errorHandler.info("Legacy HTML 4.0 Transitional doctype seen.  Please consider using HTML 4.01 Transitional instead. Proceeding anyway for your convenience with the schema for "
                                 + getPresetLabel(XHTML1TRANSITIONAL_SCHEMA)
-                                + "."
-                                + (html4SpecificAdditionalErrorChecks ? ""
-                                        : " HTML4-specific tokenization errors are not enabled."));
+                                + ".");
                         validator = validatorByDoctype(XHTML1TRANSITIONAL_SCHEMA);
                     } else if ("-//W3C//DTD HTML 4.0//EN".equals(publicIdentifier)) {
                         errorHandler.info("Legacy HTML 4.0 Strict doctype seen. Please consider using HTML 4.01 instead. Proceeding anyway for your convenience with the schema for "
                                 + getPresetLabel(XHTML1STRICT_SCHEMA)
-                                + "."
-                                + (html4SpecificAdditionalErrorChecks ? ""
-                                        : " HTML4-specific tokenization errors are not enabled."));
+                                + ".");
                         validator = validatorByDoctype(XHTML1STRICT_SCHEMA);
                     }
                 } else {
                     schemaIsDefault = true;
-                    if (html4SpecificAdditionalErrorChecks) {
-                        errorHandler.info("HTML4-specific tokenization errors are enabled.");
-                    }
                     validator = validatorByDoctype(HTML5_SCHEMA);
                 }
             } catch (IncorrectSchemaException | IOException e) {
@@ -2031,10 +2308,6 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
             ch.setDocumentLocator(htmlParser.getDocumentLocator());
             ch.startDocument();
             reader.setContentHandler(ch);
-        } else {
-            if (html4SpecificAdditionalErrorChecks) {
-                errorHandler.info("HTML4-specific tokenization errors are enabled.");
-            }
         }
     }
 
@@ -2166,6 +2439,14 @@ class VerifierServletTransaction implements DocumentModeHandler, SchemaResolver 
         attrs.addAttribute("name", "useragent");
         attrs.addAttribute("list", "useragents");
         attrs.addAttribute("value", userAgent);
+        emitter.startElement("input", attrs);
+        emitter.endElement("input");
+    }
+
+    void emitAcceptLanguageInput() throws SAXException {
+        attrs.clear();
+        attrs.addAttribute("id", "acceptlanguage");
+        attrs.addAttribute("name", "acceptlanguage");
         emitter.startElement("input", attrs);
         emitter.endElement("input");
     }

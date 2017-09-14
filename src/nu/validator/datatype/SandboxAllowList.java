@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Mozilla Foundation
+ * Copyright (c) 2017 Mozilla Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -40,6 +40,17 @@ public final class SandboxAllowList extends AbstractDatatype {
 
     private static final HashSet<String> allowedKeywords = new HashSet<>();
 
+    private static final boolean WARN = System.getProperty(
+            "nu.validator.datatype.warn", "").equals("true");
+
+    private boolean hasAllowScripts;
+
+    private boolean hasAllowSameOrigin;
+
+    private boolean hasAllowTopNavigation;
+
+    private boolean hasAllowTopNavigationByUserActivation;
+
     static {
         allowedKeywords.add("allow-forms");
         allowedKeywords.add("allow-modals");
@@ -51,10 +62,15 @@ public final class SandboxAllowList extends AbstractDatatype {
         allowedKeywords.add("allow-same-origin");
         allowedKeywords.add("allow-scripts");
         allowedKeywords.add("allow-top-navigation");
+        allowedKeywords.add("allow-top-navigation-by-user-activation");
     }
 
     @Override
     public void checkValid(CharSequence literal) throws DatatypeException {
+        hasAllowScripts = false;
+        hasAllowSameOrigin= false;
+        hasAllowTopNavigation = false;
+        hasAllowTopNavigationByUserActivation = false;
         Set<String> tokensSeen = new HashSet<>();
         StringBuilder builder = new StringBuilder();
         int len = literal.length();
@@ -70,6 +86,23 @@ public final class SandboxAllowList extends AbstractDatatype {
         if (builder.length() > 0) {
             checkToken(literal, builder, len, tokensSeen);
         }
+        if (hasAllowScripts && hasAllowSameOrigin) {
+            throw newDatatypeException(
+                    "Setting both \u201callow-scripts\u201d and"
+                            + " \u201callow-same-origin\u201d is not"
+                            + " recommended, because it effectively enables an"
+                            + " embedded page to break out of all sandboxing.",
+                    WARN);
+        }
+        if (hasAllowTopNavigation //
+                && hasAllowTopNavigationByUserActivation) {
+            throw newDatatypeException(
+                    "\u201callow-top-navigation-by-user-activation\u201d and"
+                            + " \u201callow-top-navigation\u201d must not both"
+                            + " be specified at the same time. If both are"
+                            + " present, only \u201callow-top-navigation\u201d"
+                            + " will have effect.");
+        }
     }
 
     private void checkToken(CharSequence literal, StringBuilder builder, int i,
@@ -83,6 +116,18 @@ public final class SandboxAllowList extends AbstractDatatype {
         if (!allowedKeywords.contains(token)) {
             throw newDatatypeException(i - 1, "The string \u201c" + token
                     + "\u201d is not a valid keyword.");
+        }
+        if ("allow-scripts".equals(token)) {
+            hasAllowScripts = true;
+        }
+        if ("allow-same-origin".equals(token)) {
+            hasAllowSameOrigin = true;
+        }
+        if ("allow-top-navigation".equals(token)) {
+            hasAllowTopNavigation = true;
+        }
+        if ("allow-top-navigation-by-user-activation".equals(token)) {
+            hasAllowTopNavigationByUserActivation = true;
         }
     }
 

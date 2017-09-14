@@ -97,10 +97,10 @@ public class VerifierServlet extends HttpServlet {
         PrudentHttpEntityResolver.setParams(
             Integer.parseInt(System.getProperty("nu.validator.servlet.connection-timeout","5000")),
             Integer.parseInt(System.getProperty("nu.validator.servlet.socket-timeout","5000")),
-            100);
+            Integer.parseInt(System.getProperty("nu.validator.servlet.max-requests","100")));
         // force some class loading
         new VerifierServletTransaction(null, null);
-        new MessageEmitterAdapter(null, false, null, 0, false, null);
+        new MessageEmitterAdapter(null, null, false, null, 0, false, null);
     }
 
     /**
@@ -257,6 +257,7 @@ public class VerifierServlet extends HttpServlet {
             return;
         }
         if (ua == null) {
+            response.sendError(400, "Bad request. Valid requests must include a User-Agent header.");
             return;
         }
         if (!isOptions) {

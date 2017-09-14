@@ -1,5 +1,5 @@
 <!--
-Copyright (c) 2013-2015 Mozilla Foundation
+Copyright (c) 2013-2017 Mozilla Foundation
 
 Permission is hereby granted, free of charge, to any person obtaining a
 copy of this software and associated documentation files (the "Software"),
@@ -39,7 +39,7 @@ DEALINGS IN THE SOFTWARE.
   <property name="commons-logging-version" value="1.2" />
   <property name="httpclient-version" value="4.4" />
   <property name="httpcore-version" value="4.4" />
-  <property name="icu4j-version" value="54.1.1" />
+  <property name="icu4j-version" value="58.2" />
   <property name="javax.servlet-api-version" value="3.1.0" />
   <property name="jchardet-version" value="1.0" />
   <property name="jetty-version" value="9.2.9.v20150224" />
@@ -47,7 +47,7 @@ DEALINGS IN THE SOFTWARE.
   <property name="langdetect-version" value="1.1-20120112" />
   <property name="log4j-version" value="1.2.17" />
   <property name="rhino-version" value="1.7R5" />
-  <property name="salvation-version" value="2.0.1" />
+  <property name="salvation-version" value="2.3.0" />
   <target name="build" depends="jar"/>
   <target name="clean">
     <delete dir="${dist}"/>
@@ -277,8 +277,8 @@ DEALINGS IN THE SOFTWARE.
       <dependency groupId="log4j" artifactId="log4j" version="${log4j-version}"/>
       <dependency groupId="net.arnx" artifactId="jsonic" version="${jsonic-version}"/>
       <dependency groupId="net.sf.saxon" artifactId="Saxon-HE" version="9.6.0-4"/>
-      <dependency groupId="nu.validator" artifactId="galimatias" version="0.1.1"/>
-      <dependency groupId="nu.validator" artifactId="htmlparser" version="1.4.4"/>
+      <dependency groupId="nu.validator" artifactId="galimatias" version="0.1.2"/>
+      <dependency groupId="nu.validator" artifactId="htmlparser" version="1.4.6"/>
       <dependency groupId="nu.validator" artifactId="jing" version="20150629VNU"/>
       <dependency groupId="org.apache.httpcomponents" artifactId="httpclient" version="${httpclient-version}"/>
       <dependency groupId="org.apache.httpcomponents" artifactId="httpcore" version="${httpcore-version}"/>

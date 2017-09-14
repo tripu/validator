@@ -136,7 +136,7 @@ function initFieldHolders() {
 	}
 	document.querySelector('#show_options')
 		.addEventListener('click', function (e) {
-			toggleUserAgent()
+			toggleExtraOptions()
 		}, false)
 	if (location.hash == '#file') {
 		installFileUpload()
@@ -152,15 +152,18 @@ function initFieldHolders() {
 	}
 }
 
-function toggleUserAgent() {
-	var useragent = document.querySelector('.useragent'),
-		useragent_input = document.querySelector('.useragent input')
-	if (useragent.className.indexOf("unhidden") != -1) {
-		useragent.className = useragent.className.replace(/unhidden/, 'hidden')
-		useragent_input.setAttribute("disabled", "")
+function toggleExtraOptions() {
+	var extraoptions = document.querySelector('.extraoptions'),
+		extraoptions_useragent = document.querySelector('input[name=useragent]'),
+		extraoptions_acceptlanguage = document.querySelector('input[name=acceptlanguage]')
+	if (extraoptions.className.indexOf("unhidden") != -1) {
+		extraoptions.className = extraoptions.className.replace(/unhidden/, 'hidden')
+		extraoptions_useragent.setAttribute("disabled", "")
+		extraoptions_acceptlanguage.setAttribute("disabled", "")
 	} else {
-		useragent.className = useragent.className.replace(/hidden/, 'unhidden')
-		useragent_input.removeAttribute("disabled")
+		extraoptions.className = extraoptions.className.replace(/hidden/, 'unhidden')
+		extraoptions_useragent.removeAttribute("disabled")
+		extraoptions_acceptlanguage.removeAttribute("disabled")
 	}
 }
 
@@ -190,8 +193,9 @@ function initUserAgents() {
 	userAgents.appendChild(createLabeledOption(
 		'Validator.nu/LV',
 		'default'))
-	document.querySelector("span.useragent").appendChild(userAgents)
+	document.querySelector("span.extraoptions").appendChild(userAgents)
 	document.querySelector("input[list=useragents]").setAttribute("disabled", "")
+	document.querySelector('input[name=acceptlanguage]').setAttribute("disabled", "")
 }
 
 function createLabeledOption(value, label) {
@@ -273,11 +277,14 @@ function injectHyperlinks() {
 		"https://www.w3.org/wiki/HTML/Usage/Headings/Missing",
 		"Identifying article elements with headings")
 	linkify(errors, "the Media Types section in the current Media Queries specification",
-		"http://drafts.csswg.org/mediaqueries/#media-types",
+		"https://drafts.csswg.org/mediaqueries/#media-types",
 		"Media Types sections in the Media Queries specification")
 	linkify(errors, "the Deprecated Media Features section in the current Media Queries specification",
-		"http://drafts.csswg.org/mediaqueries/#mf-deprecated",
+		"https://drafts.csswg.org/mediaqueries/#mf-deprecated",
 		"Deprecated Media Features section in the current Media Queries specification")
+	linkify(errors, "all image candidate strings must specify a width",
+		"https://ericportis.com/posts/2014/srcset-sizes/",
+		"srcset and sizes overview")
 	}
 
 function replaceSuccessFailure() {
@@ -420,9 +427,9 @@ function installFileUpload() {
 				var xnote = document.createElement("div")
 				xnote.setAttribute('id', 'xnote')
 				xnote.appendChild(document.createTextNode(
-					"Uploaded files with xhtml or .xht"
-					+ " extensions are automatically"
-					+ " processed as XHTML."))
+					"Uploaded files with .xhtml or .xht"
+					+ " extensions are parsed using"
+					+ " the XML parser."))
 				document.getElementById("inputregion")
 					.appendChild(xnote)
 			}
@@ -463,6 +470,9 @@ function copySourceIntoTextArea() {
 		var li = source.firstChild
 		while (li) {
 			var code = li.firstChild
+			if (code == null) {
+				return
+			}
 			if (hasTextContent) {
 				strings.push(code.textContent)
 			}

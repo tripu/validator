@@ -1,10 +1,9 @@
 
-29 June 2016.
-This release includes a change to make `<!-->` (IE conditional comment end) a non-error again, as well as a change to ensure that in output from the JSON/gnu message formats, each message emitted always includes the URL/filename of the document being checked, along with a change to cause `<template>` contents to be hidden from outline views.
+20 August 2017.
 
-The list of substantive changes otherwise remains the same as in the 16.6.18 release, which makes `<link rel=stylesheet>` within the body a non-error, as well as also making the `link` `rel` values `dns-prefetch`, `preconnect`, `prefetch`, `preload`, and `prerender` non-errors (including in the body), and making `a[rel=noopener]` and `area[rel=noopener]` non-errors. In addition: `<style scoped>` and `<iframe seamless>` are now errors (because they’ve been dropped from the HTML spec), using multiple `<meta charset>` elements is now an error, `allow-presentation` & `allow-orientation-lock` are now allowed values for `iframe[sandbox]`, and complete checking for the (complicated) microsyntax of the `autocomplete` attribute is now performed. Finally, comment checking has been **experimentally** changed in this release (to match a recent change to the HTML spec) such that the checker no longer emits errors for "`--`" (consecutive hyphens) in a comment but does now emit specific error messages for "`<!--`" (nested comment) within a comment, and "`--!>`" at the end of a comment (should be just "`-->`").
+This release adds a new feature to the checker network API to allow you to specify an `Accept-Language` request-header value for the checker to send when fetching remote documents to check. This release also allows `script[nomodule]`, allows the `hover`, `any-hover`, `pointer`, and `any-pointer` media features, allows the `scope`, `updateviacache`, `workertype` attributes for `link[rel=serviceworker]`, allows the string "`&;`" in content (that is, doesn’t report it as an “`&` did not start a character reference” error), and updates CSP checking to [Salvation 2.3.0](https://github.com/shapesecurity/salvation/releases/tag/v2.3.0).
 
-More: https://github.com/validator/validator/blob/master/CHANGELOG.md#16629
+More: https://github.com/validator/validator/blob/master/CHANGELOG.md#1790
 
 The files in this release provide a portable standalone version of the Nu Html Checker in two different forms: as a Java jar file, and as a Java war file.
 
