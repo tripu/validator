@@ -436,7 +436,7 @@ providing the <code>-Xss</code> option to java:
 
 </div>
   </section>
-  <section id=servlet>   
+  <section id=servlet>
     <h3>Deployment to servlet container</h3>
     <p>To run the checker inside of an existing servlet container
     such as Apache Tomcat you will need to deploy the <code>vnu.war</code>
@@ -467,7 +467,7 @@ INFO: Deploying web application archive /var/lib/tomcat7/webapps/vnu.war
 	to modify the servlet filter configuration.
 	For example, if you wanted to disable gzip decompression you
 	could comment out that filter like this:
-	
+
 	<pre>
 &lt;!--
   &lt;filter>
@@ -649,8 +649,8 @@ Follow the steps below to build, test, and run the checker such that you can ope
 <li>Make sure you have git, python, and JDK 8 installed.
 
 <li>Set the <code>JAVA_HOME</code> environment variable:
-<pre>export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64    &lt;-- Ubuntu, etc.</pre>
-<pre>export JAVA_HOME=$(/usr/libexec/java_home)            &lt;-- MacOS</pre>
+<pre>export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64    ← Ubuntu, etc.</pre>
+<pre>export JAVA_HOME=$(/usr/libexec/java_home)            ← MacOS</pre>
 
 <li>Create a working directory:
 <pre>git clone https://github.com/validator/validator.git</pre>
